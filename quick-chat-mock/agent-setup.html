@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>映序 · 把 Key 配置给 Agent</title><link rel="stylesheet" href="style.css"><style>article{max-width:820px;margin:35px auto;padding:25px}h1{font-size:30px}h2{margin-top:30px}p,li{color:#586751}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf1e6;padding:18px;border-radius:10px;font-size:12px}code{background:#edf1e6;padding:3px}a{color:#304d3c}.box{border:1px solid var(--line);background:white;border-radius:12px;padding:20px;margin:20px 0}</style><article><a href="agent.html">← API Key 管理</a><h1>Key 要放在哪里？</h1><p><strong>放在运行 Agent 的电脑上，不是粘贴到接入文档里。</strong>这页告诉你具体放法；本地 Mock 不接收或保存真实 Key，也不检查真实连接。</p><div class="box"><strong>连接配置</strong><p>服务地址：<code>https://www.sixnine.art</code>（正式网站）<br>密钥变量：<code>SIXNINE_API_KEY</code><br>作用：让映序 Skill / API 客户端读取网站 Key；不是替换 Codex 自己的模型 Key。</p><p>这是现有客户端约定。新的聊天任务卡接口仍未接通。DEMO_NOT_VALID_ 开头的演示值无法使用。</p></div><h2>我使用 Codex 桌面应用</h2><p>先把下面这段发给 Codex，里面没有密钥。Agent 应先查现有凭据配置，缺少时才引导你用本地安全输入；不会让你把 Key 贴到聊天里。</p><pre id="desktop-prompt">请按映序官方 Skill 配置网站 API 访问：https://www.sixnine.art/for-agents/SKILL.md
+目标网站是 https://www.sixnine.art。
+先检查这台电脑已有的密钥管理器/中央 API Registry，确认 sixnine profile 的端点和账户，不打印密钥，不自动选其他账户。
+如果缺少匹配凭据，请提供本地隐藏输入的配置步骤，将 Key 存入我选定的加密库。不要让我把 Key 发进聊天或写进普通配置文件。
+配置完成后，仅报告配置状态；不要生成视频、上传素材或启动 GPU。连接验证另行确认。
+当前若来自 Mock 页面，仅讲解配置步骤，不使用演示 Key 调用。</pre><button id="copy-desktop">复制给桌面 Agent 的配置说明</button><p>已有加密库时直接复用，不需要再粘贴 Key。尚未实现“一键连接桌面应用”或授权回调；这个原型不会假装已经连接。</p><h2>我使用 Codex CLI（Windows PowerShell）</h2><ol><li>在正式网站创建 Key，复制一次性显示的值。</li><li>打开 PowerShell，复制运行下面的命令。</li><li>出现“请粘贴…”后，再粘贴 Key。这里才是输入位置，字符不会显示。</li><li>命令从同一终端启动 Codex CLI，然后把官方 Skill 链接和创作需求交给它。</li></ol><pre id="cli-script"># 正式 Key 配置示例；演示 Key 不可用。不写入文件或系统环境。
+$previousSixnineKey = $env:SIXNINE_API_KEY
+$inputSixnineKey = Read-Host &quot;请粘贴映序网站 API Key（输入不显示）&quot; -AsSecureString
+try {
+    $env:SIXNINE_API_KEY = [System.Net.NetworkCredential]::new(&quot;&quot;, $inputSixnineKey).Password
+    # 从同一个终端启动 CLI，新进程才会继承这个变量。
+    codex
+} finally {
+    $env:SIXNINE_API_KEY = $previousSixnineKey
+    $inputSixnineKey.Dispose()
+    Remove-Variable previousSixnineKey,inputSixnineKey -ErrorAction SilentlyContinue
+}</pre><button id="copy-cli">复制 PowerShell 命令（不含 Key）</button><p>需要已安装 Codex CLI。变量只供这个终端启动的子进程继承，不会自动配置已经打开的桌面应用。CLI 退出后恢复原进程变量；这不是长期保存方案，下次需重新配置或使用加密库。</p><h2>配置后，如何知道成功了？</h2><p>“变量存在”“加密库能加载”和“网站鉴权成功”分别报告。正式版应提供单独的只读连接检查，显示账户、Key 权限和可访问范围；不以生成视频来检查连接。本 Mock 没有执行这种检查。</p><p><a href="agent-docs.html">继续阅读 Agent 调用说明 →</a></p><p id="copy-status" role="status"></p></article><script>async function copy(id){try{await navigator.clipboard.writeText(document.getElementById(id).textContent);document.getElementById('copy-status').textContent='已复制，不包含任何密钥值。'}catch{document.getElementById('copy-status').textContent='请手动复制上面的文字。'}}document.getElementById('copy-desktop').onclick=()=>copy('desktop-prompt');document.getElementById('copy-cli').onclick=()=>copy('cli-script');</script></html>

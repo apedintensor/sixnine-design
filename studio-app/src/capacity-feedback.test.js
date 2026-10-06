@@ -1,0 +1,19 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {jobMessage,capacityWaitMessage} from './cloud-model.js';
+
+test('capacity wait explains inventory, billing uncertainty and preparation separately',()=>{
+  const waiting=error_code=>({status:'waiting_capacity',error_code});
+  assert.match(jobMessage(waiting('capacity_no_matching_gpu')),/没有符合.*可用 GPU/);
+  assert.match(jobMessage(waiting('capacity_inventory_check_failed')),/无法确认 GPU 库存/);
+  assert.match(jobMessage(waiting('capacity_rental_reconciliation')),/暂停再次租机/);
+  assert.match(jobMessage(waiting('capacity_gpu_starting')),/加载模型/);
+  assert.equal(jobMessage(waiting('capacity_bootstrap_repair_required')),'GPU 环境准备失败，正在修复；原任务已保留，无需重新提交。');
+  assert.equal(capacityWaitMessage(waiting('capacity_bootstrap_repair_required')),'GPU 环境准备失败，正在修复；原任务已保留，无需重新提交。');
+  assert.match(jobMessage(waiting('capacity_budget_or_limit')),/不会自动提高预算/);
+  assert.match(jobMessage(waiting('unrecognized')),/等待计算容量/);
+  assert.equal(capacityWaitMessage({status:'succeeded',error_code:'capacity_no_matching_gpu'}),'');
+  const held={status:'queued',error_code:'capacity_queued_task_repair_required'};
+  assert.match(jobMessage(held),/暂停接新任务.*任务仍保留/);
+  assert.equal(capacityWaitMessage({...held,status:'failed'}),'');
+});
