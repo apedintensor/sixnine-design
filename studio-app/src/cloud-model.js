@@ -18,6 +18,11 @@ export function capacityWaitMessage(job){
     capacity_queued_task_repair_required:'GPU 工作机需要恢复，已暂停接新任务。你的任务仍保留，等待恢复；可取消等待，请勿重复提交。',
     capacity_budget_or_limit:'当前 GPU 预算或并发额度不足，暂时无法开机。原任务保留，不会自动提高预算。',
     capacity_gpu_starting:'正在准备 GPU、加载模型并检查运行条件，通过后自动执行原任务，无需再次提交。',
+    capacity_provider_preparing:'GPU 供应商正在准备机器，尚未开始加载模型或生成。原任务保留，无需重新提交。',
+    capacity_provider_configuring_ssh:'GPU 供应商正在配置远程连接，尚未开始加载模型或生成。原任务保留，无需重新提交。',
+    capacity_provider_preparation_failed:'GPU 供应商准备机器失败，尚未开始生成。机器回收与费用仍需核对，原任务保留；无需重新提交。',
+    capacity_provider_preparation_timeout:'GPU 供应商准备机器超时，尚未开始生成。机器回收与费用仍需核对，原任务保留；无需重新提交。',
+    capacity_provider_preparation_retry_limit:'GPU 供应商准备机器连续失败，已暂停自动租机，等待管理员处理。尚未开始生成，原任务仍保留；可取消等待，无需重新提交。',
     capacity_gpu_busy:'GPU 正在处理队列中的任务，当前任务等待空闲执行位置，无需重新提交。',
     capacity_searching_gpu:'正在查找符合条件的 GPU，尚未开始生成。找到后会自动准备机器，可取消等待。',
   };
