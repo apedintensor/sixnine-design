@@ -3,7 +3,7 @@ import {Plus,ArrowUp,Settings2,Bot,Menu,X,RefreshCw,LogOut,Upload,Image,Video,Mu
 import {useCloud} from './CloudStudio.jsx';
 import {cloudController as cloud} from './cloud-controller.js';
 import {createQuickChatController} from './quick-chat-controller.js';
-import {CHAT_MODELS,defaultsFor,recipeFor,clone,bindingPayload,bindingParticipates,bindingProblems,bindingsForInputs,mergeTimelineTurns,sessionHref,safeSessionId,effectiveLimits,effectiveControlSchema,hasOriginalAudio,isInternalDerivedInventory} from './quick-chat-model.js';
+import {CHAT_MODELS,defaultsFor,recipeFor,clone,bindingPayload,bindingParticipates,bindingProblems,bindingsForInputs,mergeTimelineTurns,sessionHref,safeSessionId,effectiveLimits,displaySeconds,effectiveControlSchema,hasOriginalAudio,isInternalDerivedInventory} from './quick-chat-model.js';
 import QuickChatControls,{ChatDialog} from './QuickChatControls.jsx';
 import QuickChatMaterials from './QuickChatMaterials.jsx';
 import QuickChatCard from './QuickChatCard.jsx';
@@ -110,7 +110,7 @@ export default function QuickChatWorkspace(){
   const connectionLabel=!c.account?'● 本地待上传':!state.schema?'● 正在核对云连接':!assistantEnabled?'● 服务已连接 · 助手未启用':'● 服务已连接';
   const settingsSummary=recipe?(settings.controls?.duration??'?')+' 秒 · '+(settings.controls?.resolution||'待选清晰度')+' · '+(settings.copies||1)+'份':'登录后读取可用参数';
   const modeLabel=recipe?.mode==='fl'?'首尾帧':'全能参考';
-  const materialLimits=recipe?.mode==='fl'?'首帧 '+state.materials.filter(b=>b.slot==='first_frame'&&bindingParticipates(b,recipe)).length+'/1 · 尾帧 '+state.materials.filter(b=>b.slot==='last_frame'&&bindingParticipates(b,recipe)).length+'/1 · 可不放素材':recipe?'图片 '+counts.image+'/'+(limits.max_images??'?')+' · 视频 '+counts.video+'/'+(limits.max_videos??'?')+' · 音频 '+counts.audio+'/'+(limits.max_audios??'?')+' · 合计 '+(counts.image+counts.video+counts.audio)+'/'+(limits.max_total_files??'?')+' ｜视频单段 '+(limits.min_clip_duration??'?')+'–'+(limits.max_video_clip_duration??'?')+' 秒，累计≤'+(limits.max_total_video_duration??'?')+'秒；音频单段 '+(limits.min_clip_duration??'?')+'–'+(limits.max_audio_clip_duration??'?')+' 秒，累计≤'+(limits.max_total_audio_duration??'?')+'秒':'';
+  const materialLimits=recipe?.mode==='fl'?'首帧 '+state.materials.filter(b=>b.slot==='first_frame'&&bindingParticipates(b,recipe)).length+'/1 · 尾帧 '+state.materials.filter(b=>b.slot==='last_frame'&&bindingParticipates(b,recipe)).length+'/1 · 可不放素材':recipe?'图片 '+counts.image+'/'+(limits.max_images??'?')+' · 视频 '+counts.video+'/'+(limits.max_videos??'?')+' · 音频 '+counts.audio+'/'+(limits.max_audios??'?')+' · 合计 '+(counts.image+counts.video+counts.audio)+'/'+(limits.max_total_files??'?')+' ｜视频单段 '+displaySeconds(limits.min_clip_duration)+'–'+displaySeconds(limits.max_video_clip_duration)+' 秒，累计≤'+displaySeconds(limits.max_total_video_duration)+'秒；音频单段 '+displaySeconds(limits.min_clip_duration)+'–'+displaySeconds(limits.max_audio_clip_duration)+' 秒，累计≤'+displaySeconds(limits.max_total_audio_duration)+'秒':'';
   async function switchComposerMode(mode){await act(async()=>{const live=controller.getState();if(await saveSelection(live.materials,{intent:mode,validate:false}))setNotice('已切换'+(mode==='fl'?'首尾帧':'全能参考')+'；不兼容素材保留。');});}
   function dropIntoComposer(event){
     event.preventDefault();setDragging(false);const raw=event.dataTransfer.getData('application/x-yingxu-asset');
