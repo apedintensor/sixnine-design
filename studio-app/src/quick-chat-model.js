@@ -41,6 +41,17 @@ export function defaultsFor(capabilities,recipeId,deploymentProfileId=null){
   for(const [field,value]of Object.entries(preset))if(schema[field]?.enum?.includes(value))controls[field]=value;
   return {recipe_id:recipe.id,controls,copies:1};
 }
+export function nextSettingsFor(capabilities,schema,{draft,session}={}){
+  // A changed service default never rewrites authored settings or history.
+  if(draft)return draft;if(session)return session;
+  const next=clone(schema?.default_next_settings||defaultsFor(capabilities)),id=next.deployment_profile_id;
+  if(!id)return next;
+  const base=capabilities?.recipes?.find(item=>item.id===next.recipe_id),profile=capabilities?.deployment_profiles?.find(item=>item.id===id),support=profile?.generation_support?.[base?.mode];
+  // Only the server's explicit, presently enabled default may be selected.
+  // Do not guess the first available profile or merge generic control defaults.
+  if(capabilities?.default_deployment_profile_id!==id||!base||support?.configured!==true||support?.enabled!==true||settingsProblems(next,recipeFor(capabilities,next)).length)return defaultsFor(capabilities);
+  return next;
+}
 export function effectiveLimits(recipe){
   const base=recipe?.limits||{},envelope=recipe?.execution_support?.constraints||{},pool=envelope.input_limits||{};
   return {max_images:minimum(base.max_images,pool.max_images),max_videos:minimum(base.max_videos,pool.max_videos),max_audios:minimum(base.max_audios,pool.max_audios),max_total_files:minimum(base.max_total_files,envelope.max_reference_files),max_guides:minimum(base.max_guides,envelope.max_guides),min_clip_duration:base.min_clip_duration??null,max_clip_duration:base.max_clip_duration??null,max_video_clip_duration:minimum(base.max_video_clip_duration,base.max_clip_duration,pool.max_video_duration_seconds),max_audio_clip_duration:minimum(base.max_audio_clip_duration,base.max_clip_duration,pool.max_audio_duration_seconds),max_total_video_duration:minimum(base.max_total_video_duration,pool.max_video_duration_seconds),max_total_audio_duration:minimum(base.max_total_audio_duration,pool.max_audio_duration_seconds),guide_kinds:pool.guide_kinds||['image','video','audio'],guide_recipe_ids:pool.guide_recipe_ids||null,max_guide_time_seconds:pool.max_guide_time_seconds??null,allow_first_last:envelope.allow_first_last!==false,allow_video_audio:pool.allow_video_audio!==false,max_image_pixels:pool.max_image_pixels??null,max_video_pixels:pool.max_video_pixels??null};

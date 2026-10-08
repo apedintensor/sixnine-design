@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createQuickChatClient} from './quick-chat-client.js';
 import {createQuickChatController,saveMaterialSelection} from './quick-chat-controller.js';
-import {defaultsFor,effectiveControlSchema,effectiveLimits,settingsProblems,bindingProblems,bindingPayload,bindingsToInputs,mergeTimelineTurns,isInternalDerivedInventory} from './quick-chat-model.js';
+import {defaultsFor,nextSettingsFor,effectiveControlSchema,effectiveLimits,settingsProblems,bindingProblems,bindingPayload,bindingsToInputs,mergeTimelineTurns,isInternalDerivedInventory} from './quick-chat-model.js';
 const memory=()=>{const data=new Map();return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)};};
 const capability={recipes:[{id:'fl',mode:'fl',controls:{duration:{type:'integer',minimum:4,maximum:15,default:5},resolution:{type:'string',enum:['480P','768P'],default:'768P'},seed:{type:['string','null'],default:null},steps:{type:'integer',minimum:1,maximum:100,default:50},video_decode:{type:'string',enum:['normal','tiled'],default:'normal'}},limits:{max_images:9,max_videos:3,max_audios:3,max_total_files:12,max_guides:8,min_clip_duration:2,max_clip_duration:15,max_total_video_duration:15,max_total_audio_duration:15},execution_support:{constraints:{max_steps:50,max_duration_seconds:124/24,max_reference_files:3,max_guides:1,controls:{video_decode:['tiled']},input_limits:{max_images:1,max_videos:1,max_audios:1,max_video_duration_seconds:10,max_audio_duration_seconds:10,guide_kinds:['image'],guide_recipe_ids:['ref']}}},deployment_preset:{controls:{video_decode:'tiled'}}}]};
 test('pool constraints tighten defaults and native duration without widening schema',()=>{const recipe=capability.recipes[0],schema=effectiveControlSchema(recipe),defaults=defaultsFor(capability);assert.equal(schema.duration.maximum,5);assert.equal(schema.steps.maximum,50);assert.deepEqual(schema.video_decode.enum,['tiled']);assert.equal(defaults.controls.video_decode,'tiled');assert.equal(effectiveLimits(recipe).max_images,1);assert.deepEqual(capability.recipes[0].controls.video_decode.enum,['normal','tiled']);});
@@ -110,4 +110,20 @@ test('profile save failure or account switch during PATCH cannot continue materi
     const rejected=assert.rejects(saving);if(scenario==='account-change'){await controller.setAccount('other-account');finish({session:{id:'s',version:2,next_settings:{recipe_id:'fl',deployment_profile_id:'new'}}});}await rejected;
     assert.equal(materialWrites,0);if(scenario==='account-change')assert.equal(controller.getState().session,null);
   }
+});
+
+test('fresh draft uses only the enabled explicit server profile and its exact defaults',()=>{
+  const controls={duration:{type:'integer',minimum:5,maximum:5,default:5},resolution:{type:'string',enum:['480P','768P'],default:'480P'},steps:{type:'integer',enum:[20,50],default:20},sampler_name:{type:'string',enum:['native'],default:'native'}};
+  const profile={id:'cheap-tested',generation_support:{fl:{configured:true,enabled:true,controls}}},capabilities={recipes:[{id:'fl',mode:'fl',controls:{...controls,sampler_name:{type:'string',default:'generic'},negative_prompt:{type:'string',default:'generic-negative'}}}],deployment_profiles:[profile],default_deployment_profile_id:'cheap-tested'};
+  const expected={recipe_id:'fl',deployment_profile_id:'cheap-tested',controls:{duration:5,resolution:'480P',steps:20,sampler_name:'native'},copies:1},schema={default_next_settings:structuredClone(expected)};
+  const actual=nextSettingsFor(capabilities,schema);assert.deepEqual(actual,expected);assert.equal('negative_prompt' in actual.controls,false);assert.equal(actual.controls.resolution,'480P');assert.notEqual(actual,schema.default_next_settings);assert.deepEqual(schema.default_next_settings,expected);
+  for(const change of [{default_deployment_profile_id:null},{default_deployment_profile_id:'other'},{deployment_profiles:[]},{deployment_profiles:[{...profile,generation_support:{fl:{...profile.generation_support.fl,configured:false}}}]},{deployment_profiles:[{...profile,generation_support:{fl:{...profile.generation_support.fl,enabled:false}}}]}])assert.equal(nextSettingsFor({...capabilities,...change},schema).deployment_profile_id,undefined);
+  const invalid=structuredClone(schema);invalid.default_next_settings.controls.steps=51;assert.equal(nextSettingsFor(capabilities,invalid).deployment_profile_id,undefined);
+  const undeclared=structuredClone(schema);undeclared.default_next_settings.controls.negative_prompt='generic-negative';assert.equal(nextSettingsFor(capabilities,undeclared).deployment_profile_id,undefined);
+});
+
+test('service default changes do not replace existing session or explicitly authored draft settings',()=>{
+  const cap={...capability,default_deployment_profile_id:'new-profile'},schema={default_next_settings:{recipe_id:'fl',deployment_profile_id:'new-profile',controls:{steps:20,resolution:'480P'},copies:1}};
+  for(const id of [null,'bf16','retired-profile']){const session={recipe_id:'fl',deployment_profile_id:id,controls:{steps:50,resolution:'768P'},copies:2};assert.equal(nextSettingsFor(cap,schema,{session}),session);const draft={...session,controls:{steps:30}};assert.equal(nextSettingsFor(cap,schema,{session,draft}),draft);}
+  const legacy={recipe_id:'fl',controls:{resolution:'480P',duration:5},copies:1};assert.deepEqual(nextSettingsFor(cap,{default_next_settings:legacy}),legacy);
 });
