@@ -28,3 +28,5 @@ Selected profiles use their own `generation_support[mode].controls` and constrai
 - The backend must wire `/operator`, the owner capability map, catalogue, deployment bindings, policy and controller. Historical recipe records alone cannot authorize a launch.
 
 Local fixture screenshots are intentionally not committed: `.operator-ui-check/console-desktop.jpg`, `start-preview.jpg`, `console-mobile.jpg`. They contain synthetic operational data and real catalogue labels, not live cloud status.
+
+Safe-stop detail: a stale provider observation does not prohibit recording drain/stop intent when the freshly read server action allows it. Destruction still waits for the existing backend proof; the UI retains the observed node version. A historical confirmed destruction remains labeled destroyed rather than becoming healthy or running again.
