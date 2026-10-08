@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createOperatorClient} from './operator-client.js';
 import {createOperatorController} from './operator-controller.js';
-import {allowed,profileSelection} from './operator-model.js';
+import {allowed,profileSelection,nodeDeadline} from './operator-model.js';
 import {recipeFor,effectiveControlSchema,effectiveLimits,clipLimits,inputProblems} from './quick-chat-model.js';
 
 const memory=()=>{const data=new Map();return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)};};
@@ -80,4 +80,15 @@ test('missing explicit profile limits never inherit unrelated legacy media or cu
   const base={id:'ref',mode:'ref',limits:{max_images:9,max_audios:3,max_clip_duration:3},custom_canvas_constraints:{maximum_pixel_area:1},controls:{}};
   const selected=recipeFor({recipes:[base],deployment_profiles:[{id:'draft',generation_support:{ref:{controls:{}}}}]},{recipe_id:'ref',deployment_profile_id:'draft'});
   assert.deepEqual(selected.limits,{});assert.equal(effectiveLimits(selected).max_audio_clip_duration,null);assert.equal(selected.custom_canvas_constraints,null);assert.equal(recipeFor({recipes:[base]},{recipe_id:'ref'}),base);
+});
+
+
+test('safe stop deadline requires fresh verified evidence and never exceeds durable cap',()=>{
+  const now=1000000,node={provider_safe_deadline:2000,hard_deadline:1800,provider_lifetime_state:'verified',provider_lifetime_observed_at:990};
+  assert.deepEqual(nodeDeadline(node,now),{verified:true,label:'安全停止期限',deadline:1800});
+  assert.equal(nodeDeadline({...node,provider_safe_deadline:1700},now).deadline,1700);
+  for(const patch of [{provider_lifetime_observed_at:969},{provider_lifetime_observed_at:1001},{provider_lifetime_state:'unverified'},{provider_safe_deadline:null}]){
+    const result=nodeDeadline({...node,...patch},now);assert.equal(result.verified,false);assert.equal(result.deadline,1800);assert.match(result.label,/待核对/);
+  }
+  assert.equal(nodeDeadline({},now).deadline,null);
 });
