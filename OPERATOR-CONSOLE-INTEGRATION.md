@@ -45,3 +45,11 @@ Chrome exercised `http://127.0.0.1:8897` using the root integration backend, `to
 - The subsequently added provider lifetime DTO uses `provider_safe_deadline`, `provider_lifetime_state`, and `provider_lifetime_observed_at`. The node card calls a stop deadline verified only when its explicit verification is no more than 30 seconds old, and never displays a stop deadline beyond the durable `hard_deadline`. Old, absent or future-dated observations remain unverified. All 13 affected operator tests and the build passed after this additive display change; the earlier full suite was not unnecessarily repeated locally.
 
 Local evidence, intentionally not committed: `.operator-ui-check/real-api-blocked-preview.jpg`, `real-api-card-profile-restored.jpg`, `real-api-ordinary-denied.jpg`, `real-api-50steps-restored.jpg`, `real-api-input-combinations.jpg`.
+
+## Material-selection regression fix — 2026-10-09
+
+Independent review found that a same-mode material edit could clear an unsaved deployment-profile choice: the previous save condition only compared recipe IDs. Material selection now compares complete settings, persists changes with the original session version, uses the PATCH response version for the following binding write, and clears the draft only after successful completion. Account/session/version fences stop stale or cross-account continuations.
+
+- Thirty-six affected Quick Chat/operator tests passed, including same-mode profile selection, explicit legacy/null selection, control changes, version conflicts and account changes during PATCH. The Vite build passed. An independent reviewer re-read the fix and separately ran the same affected suite successfully.
+- The follow-up real-browser file-upload check could not proceed because the Chrome extension lacks file-URL access. No extension permission was changed. The material-write regression is verified by the real controller with isolated fake HTTP; it is not claimed as a browser upload acceptance.
+- This correction remains source-only: no provider operation, generation, frontend release or backend snapshot update.

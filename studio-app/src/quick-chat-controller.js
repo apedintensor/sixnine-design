@@ -4,6 +4,20 @@ import {bindingPayload} from './quick-chat-model.js';
 const clone=value=>structuredClone(value),uuid=()=>crypto.randomUUID();
 const record=(value,field)=>value?.[field]||value;
 const merge=(older,newer)=>[...new Map([...older,...newer].map(value=>[value.id||value.binding_id,value])).values()];
+export async function saveMaterialSelection(controller,{original,next,proposed}){
+  const account=original.account,sid=original.session?.id;
+  let expectedVersion=original.session?.version;
+  function checked(version=true){const live=controller.getState();if(!sid||live.account!==account||live.session?.id!==sid||version&&live.session.version!==expectedVersion)throw Error('创作已被更新或目标已改变。请核对最新材料后再调整，原素材保留。');return live;}
+  const live=checked();
+  // Profile and controls may change without changing FL/REF mode.
+  if(stableJSON(next)!==stableJSON(live.session.next_settings)){
+    const patched=await controller.patch({expected_version:expectedVersion,next_settings:next});
+    expectedVersion=record(patched,'session').version;
+  }
+  const latest=checked(),merged=proposed.map(binding=>{const known=latest.materials.find(item=>item.asset_id===binding.asset_id);return {...bindingPayload(binding),binding_id:known?.binding_id||binding.binding_id,version:known?.version??binding.version??0};});
+  await controller.saveMaterials(merged);
+  checked(false);return true;
+}
 export function createQuickChatController({client=createQuickChatClient(),storage=globalThis.localStorage}={}){
   let epoch=0,sessionEpoch=0,readGeneration=0,refreshing=false;
   let state={account:null,schema:null,capabilities:null,sessions:[],sessionsCursor:null,session:null,materials:[],timeline:[],historyCursor:null,forwardCursor:null,cards:{},revisions:{},preflights:{},submissions:{},imports:{},busy:false,error:'',notice:'',pending:null,lastUpdated:null};

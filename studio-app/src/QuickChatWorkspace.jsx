@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'reac
 import {Plus,ArrowUp,Settings2,Bot,Menu,X,RefreshCw,LogOut,Upload,Image,Video,Music} from 'lucide-react';
 import {useCloud} from './CloudStudio.jsx';
 import {cloudController as cloud} from './cloud-controller.js';
-import {createQuickChatController} from './quick-chat-controller.js';
+import {createQuickChatController,saveMaterialSelection} from './quick-chat-controller.js';
 import {CHAT_MODELS,defaultsFor,recipeFor,clone,bindingPayload,bindingParticipates,bindingProblems,bindingsForInputs,mergeTimelineTurns,sessionHref,safeSessionId,effectiveLimits,displaySeconds,effectiveControlSchema,hasOriginalAudio,isInternalDerivedInventory} from './quick-chat-model.js';
 import QuickChatControls,{ChatDialog} from './QuickChatControls.jsx';
 import QuickChatMaterials from './QuickChatMaterials.jsx';
@@ -63,19 +63,15 @@ export default function QuickChatWorkspace(){
   async function newSession(){carryDraft.current=false;if(!c.account){saveDraft(null,null,prompt);setDialog('login');return;}if(staged.length)needsFileReconfirm.current=true;saveDraft(c.account,state.session?.id,prompt);await act(async()=>{const created=await controller.create({model_id:model});if(newSettings.recipe_id&&JSON.stringify(newSettings)!==JSON.stringify(created.next_settings))await controller.patch({next_settings:newSettings});const id=controller.getState().session.id;saveMode(c.account,id,'auto');chooseMode('auto');setPrompt(readDraft(c.account,id));});setMobile(false);}
   async function stageFiles(files){if(uploading.current||state.busy){setLocalError('原材料操作仍在处理中，请稍后添加。');return;}const errors=[],add=[];for(const file of files){const kind=file.type.split('/')[0];if(!['image','video','audio'].includes(kind)){errors.push(`${file.name}：请选择图片、视频或音频。`);continue;}if(modeRef.current==='fl'&&kind!=='image'){errors.push(`${file.name}：首尾帧只使用图片，请先切换全能参考。`);continue;}if(!file.size){errors.push(`${file.name}：文件为空。`);continue;}const max=state.capabilities?.upload_constraints?.max_bytes;if(Number.isFinite(max)&&file.size>max){errors.push(`${file.name}：超过上传上限 ${(max/1024**2).toFixed(0)} MB。`);continue;}add.push({id:crypto.randomUUID(),file,kind,url:URL.createObjectURL(file),owner:c.account});}const queue=[...stagedRef.current,...add];stagedRef.current=queue;setStaged(queue);if(c.account&&add.length)await act(()=>uploadFiles(queue));if(errors.length)setLocalError(errors.join(' '));}
   async function saveSelection(proposed,{intent=modeRef.current,validate=true,confirmMode=true,nextSettings}={}){
-    const original=controller.getState(),sid=original.session?.id,account=original.account;
+    const original=controller.getState(),sid=original.session?.id;
     if(!sid)throw Error('请先保存到一条创作。');
     const currentSettings=nextSettings||draftSettings||original.session.next_settings||defaultsFor(original.capabilities),currentRecipe=recipeFor(original.capabilities,original.session.next_settings),mode=intent==='auto'?automaticMode(proposed):intent,next=settingsForMode(original.capabilities,currentSettings,mode),nextRecipe=recipeFor(original.capabilities,next);
     const problems=validate?bindingProblems(proposed,nextRecipe,next.controls):[];
     if(problems.length)throw Error(problems.join(' '));
     const excluded=proposed.filter(binding=>binding.enabled!==false&&!bindingParticipates(binding,nextRecipe));
     if(confirmMode&&currentRecipe?.mode!==mode&&excluded.length&&!await ask(`切换为${mode==='fl'?'首尾帧':'全能参考'}后，${excluded.length} 份不兼容素材会保留，但本轮不使用。素材和历史记录不会删除。`,{title:'切换生成方式？',label:'切换并保留素材'}))return false;
-    const live=controller.getState();if(live.account!==account||live.session?.id!==sid||live.session.version!==original.session.version)throw Error('创作已被更新。请核对最新材料后再调整，原素材保留。');
-    if(next.recipe_id!==live.session.next_settings?.recipe_id||nextSettings)await controller.patch({next_settings:next});
-    // Read each version after the preceding write. Never reuse the pre-PATCH session version.
-    const latest=controller.getState();if(latest.account!==account||latest.session?.id!==sid)throw Error('创作目标已改变，停止保存。');
-    const merged=proposed.map(binding=>{const known=latest.materials.find(item=>item.asset_id===binding.asset_id);return {...bindingPayload(binding),binding_id:known?.binding_id||binding.binding_id,version:known?.version??binding.version??0};});
-    await controller.saveMaterials(merged);setDraftSettings(null);chooseMode(intent);return true;
+    await saveMaterialSelection(controller,{original,next,proposed});
+    setDraftSettings(null);chooseMode(intent);return true;
   }
   async function updateMaterials(bindings){const live=controller.getState();return saveSelection(bindings.map(binding=>({...live.materials.find(item=>item.asset_id===binding.asset_id),...binding})));}
   async function roleChange(binding,patch){
@@ -92,7 +88,7 @@ export default function QuickChatWorkspace(){
   });}
   async function uploadFiles(queue=[...stagedRef.current]){if(uploading.current)return;const session=await ensureSession();if(needsFileReconfirm.current&&!await ask(`将这些本地文件保存到 ${c.account} 的「${session.title}」？`,{title:'确认材料保存位置',label:'保存到这次创作'}))throw Error('未上传，文件保留本地。');needsFileReconfirm.current=false;const account=c.account,sid=session.id;uploading.current=true;setSubmitting(true);
     try{let needsClip=false;for(const item of queue){const live=controller.getState();if(live.account!==account||live.session?.id!==sid)throw Error('目标账户或创作已改变，停止上传；原结果请在原创作核对。');const uploaded=await controller.upload(item.file,item.id),asset={...uploaded,id:uploaded.id||uploaded.asset_id};URL.revokeObjectURL(item.url);stagedRef.current=stagedRef.current.filter(file=>file.id!==item.id);setStaged(stagedRef.current);if(asset.status!=='ready')throw Error('文件已接收但校验尚未完成。先刷新材料状态核对原收据，不重新上传。');const current=controller.getState(),currentSettings=draftSettings||current.session.next_settings,kind=asset.kind;let slot={image:'images',video:'videos',audio:'audios'}[kind];if(kind==='image'&&modeRef.current==='fl')slot=!current.materials.some(b=>b.enabled!==false&&b.slot==='first_frame')?'first_frame':!current.materials.some(b=>b.enabled!==false&&b.slot==='last_frame')?'last_frame':'images';const known=current.materials.find(b=>b.asset_id===asset.id),binding={...known,binding_id:known?.binding_id||'binding-'+crypto.randomUUID(),version:known?.version??0,asset_id:asset.id,asset,kind,slot,purpose:{images:'reference',videos:'motion',audios:'audio',first_frame:'firstFrame',last_frame:'lastFrame'}[slot],enabled:true,...(kind==='video'?{include_audio:effectiveLimits(recipeFor(current.capabilities,currentSettings)).allow_video_audio&&hasOriginalAudio(asset)}:{})},proposed=[...current.materials.filter(b=>b.asset_id!==asset.id),binding],mode=modeRef.current==='auto'?automaticMode(proposed):modeRef.current,next=settingsForMode(current.capabilities,currentSettings,mode),problems=bindingProblems(proposed,recipeFor(current.capabilities,next),next.controls);
-      if(problems.length){needsClip=true;if(next.recipe_id!==current.session.next_settings.recipe_id)await controller.patch({next_settings:next});continue;}
+      if(problems.length){needsClip=true;if(JSON.stringify(next)!==JSON.stringify(current.session.next_settings))await controller.patch({expected_version:current.session.version,next_settings:next});continue;}
       await saveSelection(proposed,{nextSettings:draftSettings||undefined});
     }setNotice(needsClip?'原素材已保存。请在素材上选择合法片段或用途，再用于本轮。':'素材已保存，输入会沿用到下一轮。');}finally{uploading.current=false;if(alive.current)setSubmitting(false);}}
   async function persistNextSettings(){const live=controller.getState(),base=draftSettings||live.session.next_settings,mode=modeRef.current==='auto'?automaticMode(live.materials):modeRef.current,next=settingsForMode(live.capabilities,base,mode);if(JSON.stringify(next)!==JSON.stringify(live.session.next_settings))await controller.patch({next_settings:next});setDraftSettings(null);return next;}
