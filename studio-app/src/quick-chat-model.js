@@ -5,7 +5,14 @@ export const CONTROL_LABELS={duration:'生成时长（秒）',resolution:'原生
 export const CONTROL_GROUPS=[['常用设置',['duration','resolution','aspect_ratio','generate_audio']],['参考与时间',['ref_image_size']],['随机性与采样',['seed','steps','sampler_name','scheduler','denoise']],['音画日程 · 实验项',['shift_video','shift_audio']],['运行与导出',['video_decode','audio_decode','encoder_device','video_tile_size','video_overlap','video_temporal_size','video_temporal_overlap','export_crf','audio_tile_size','audio_overlap']]];
 export const clone=value=>structuredClone(value);
 const minimum=(...values)=>{const known=values.filter(Number.isFinite);return known.length?Math.min(...known):null;};
-export function recipeFor(capabilities,settings={}){return capabilities?.recipes?.find(recipe=>recipe.id===settings.recipe_id)||capabilities?.recipes?.find(recipe=>recipe.mode==='fl')||null;}
+export function recipeFor(capabilities,settings={}){
+  const base=capabilities?.recipes?.find(recipe=>recipe.id===settings.recipe_id)||capabilities?.recipes?.find(recipe=>recipe.mode==='fl')||null;
+  if(!base||!settings.deployment_profile_id)return base;
+  const profile=capabilities?.deployment_profiles?.find(item=>item.id===settings.deployment_profile_id),support=profile?.generation_support?.[base.mode];
+  // An explicit deployment never inherits another pool's clamps or presets.
+  // Keep authored values; backend preflight validates the selected profile.
+  return {...base,model_id:profile?.model_id||base.model_id,controls:support?.controls||base.controls,limits:support?.limits||{},custom_canvas_constraints:support?.custom_canvas_constraints||null,execution_support:support||{configured:false,enabled:false,reason:'原部署配方当前未公开。'},deployment_preset:null};
+}
 export function effectiveControlSchema(recipe){
   const envelope=recipe?.execution_support?.constraints||{},result={};
   for(const [field,raw]of Object.entries(recipe?.controls||{})){
@@ -25,8 +32,8 @@ export function effectiveControlSchema(recipe){
   }
   return result;
 }
-export function defaultsFor(capabilities,recipeId){
-  const recipe=recipeFor(capabilities,{recipe_id:recipeId});if(!recipe)return {recipe_id:recipeId||'',controls:{},copies:1};
+export function defaultsFor(capabilities,recipeId,deploymentProfileId=null){
+  const recipe=recipeFor(capabilities,{recipe_id:recipeId,deployment_profile_id:deploymentProfileId});if(!recipe)return {recipe_id:recipeId||'',controls:{},copies:1};
   const schema=effectiveControlSchema(recipe),preset=recipe.deployment_preset?.controls||{},controls={};
   for(const [field,item]of Object.entries(schema))if(item.available!==false&&!['guides','video_audio'].includes(field)&&Object.hasOwn(item,'default')){
     let value=clone(item.default);if(item.enum&&!item.enum.includes(value))value=item.enum[0];if(Number.isFinite(value)&&Number.isFinite(item.maximum))value=Math.min(value,item.maximum);controls[field]=value;
@@ -36,8 +43,10 @@ export function defaultsFor(capabilities,recipeId){
 }
 export function effectiveLimits(recipe){
   const base=recipe?.limits||{},envelope=recipe?.execution_support?.constraints||{},pool=envelope.input_limits||{};
-  return {max_images:minimum(base.max_images,pool.max_images),max_videos:minimum(base.max_videos,pool.max_videos),max_audios:minimum(base.max_audios,pool.max_audios),max_total_files:minimum(base.max_total_files,envelope.max_reference_files),max_guides:minimum(base.max_guides,envelope.max_guides),min_clip_duration:base.min_clip_duration??null,max_clip_duration:minimum(base.max_clip_duration,pool.max_video_duration_seconds,pool.max_audio_duration_seconds),max_total_video_duration:minimum(base.max_total_video_duration,pool.max_video_duration_seconds),max_total_audio_duration:minimum(base.max_total_audio_duration,pool.max_audio_duration_seconds),guide_kinds:pool.guide_kinds||['image','video','audio'],guide_recipe_ids:pool.guide_recipe_ids||null,max_guide_time_seconds:pool.max_guide_time_seconds??null,allow_first_last:envelope.allow_first_last!==false,allow_video_audio:pool.allow_video_audio!==false,max_image_pixels:pool.max_image_pixels??null,max_video_pixels:pool.max_video_pixels??null};
+  return {max_images:minimum(base.max_images,pool.max_images),max_videos:minimum(base.max_videos,pool.max_videos),max_audios:minimum(base.max_audios,pool.max_audios),max_total_files:minimum(base.max_total_files,envelope.max_reference_files),max_guides:minimum(base.max_guides,envelope.max_guides),min_clip_duration:base.min_clip_duration??null,max_clip_duration:base.max_clip_duration??null,max_video_clip_duration:minimum(base.max_video_clip_duration,base.max_clip_duration,pool.max_video_duration_seconds),max_audio_clip_duration:minimum(base.max_audio_clip_duration,base.max_clip_duration,pool.max_audio_duration_seconds),max_total_video_duration:minimum(base.max_total_video_duration,pool.max_video_duration_seconds),max_total_audio_duration:minimum(base.max_total_audio_duration,pool.max_audio_duration_seconds),guide_kinds:pool.guide_kinds||['image','video','audio'],guide_recipe_ids:pool.guide_recipe_ids||null,max_guide_time_seconds:pool.max_guide_time_seconds??null,allow_first_last:envelope.allow_first_last!==false,allow_video_audio:pool.allow_video_audio!==false,max_image_pixels:pool.max_image_pixels??null,max_video_pixels:pool.max_video_pixels??null};
 }
+export const displaySeconds=value=>Number.isFinite(value)?String(Number(value.toFixed(2))):'?';
+export function clipLimits(limits,kind){return {minimum:limits?.min_clip_duration??null,maximum:limits?.[`max_${kind}_clip_duration`]??limits?.max_clip_duration??null};}
 export function mediaDuration(asset){const meta=asset?.metadata||{};return meta.source_duration??meta.duration??meta.duration_s??null;}
 export function hasOriginalAudio(asset){return asset?.metadata?.has_audio!==false;}
 export function referenceDuration(ref,asset){return ref.end!==undefined&&ref.start!==undefined?ref.end-ref.start:mediaDuration(asset);}
@@ -55,8 +64,9 @@ export function inputProblems(refs,assets,recipe,{requireReference=false,control
     const entries=active.filter(ref=>['reference','guide'].includes(ref.role)&&byId.get(ref.asset_id)?.kind===kind),unique=new Map(entries.map(ref=>[ref.asset_id,ref]));
     const max=limits[`max_${kind==='image'?'images':kind==='video'?'videos':'audios'}`];if(Number.isFinite(max)&&unique.size>max)errors.push(`${{image:'图片',video:'视频',audio:'音频'}[kind]}最多 ${max} 份（参考和锚点共用）。`);
     if(kind!=='image'){
-      let total=0;for(const ref of unique.values()){const asset=byId.get(ref.asset_id),duration=referenceDuration(ref,asset),source=mediaDuration(asset);if(!Number.isFinite(duration)||duration<(limits.min_clip_duration??2)||duration>(limits.max_clip_duration??15)||ref.start!==undefined&&(!Number.isFinite(ref.start)||!Number.isFinite(ref.end)||ref.start<0||Number.isFinite(source)&&ref.end>source))errors.push(`「${asset.file_name||'素材'}」需选择 ${limits.min_clip_duration??'?'}–${limits.max_clip_duration??'?'} 秒的有效片段。`);else total+=duration;}
-      const maximum=limits[`max_total_${kind}_duration`];if(Number.isFinite(maximum)&&total>maximum+1e-6)errors.push(`${kind==='video'?'视频':'音频'}累计片段最多 ${maximum} 秒。`);
+      const clip=clipLimits(limits,kind);
+      let total=0;for(const ref of unique.values()){const asset=byId.get(ref.asset_id),duration=referenceDuration(ref,asset),source=mediaDuration(asset);if(!Number.isFinite(duration)||duration<(clip.minimum??2)||duration>(clip.maximum??15)||ref.start!==undefined&&(!Number.isFinite(ref.start)||!Number.isFinite(ref.end)||ref.start<0||Number.isFinite(source)&&ref.end>source))errors.push(`「${asset.file_name||'素材'}」需选择 ${displaySeconds(clip.minimum)}–${displaySeconds(clip.maximum)} 秒的有效片段。`);else total+=duration;}
+      const maximum=limits[`max_total_${kind}_duration`];if(Number.isFinite(maximum)&&total>maximum+1e-6)errors.push(`${kind==='video'?'视频':'音频'}累计片段最多 ${displaySeconds(maximum)} 秒。`);
     }
   }
   for(const ref of active){const asset=byId.get(ref.asset_id);if(!asset){errors.push('有引用尚未读取到素材，请刷新会话。');continue;}if(asset.status&&asset.status!=='ready')errors.push(`「${asset.file_name||'素材'}」尚未完成上传校验。`);if(['first_frame','last_frame'].includes(ref.role)&&asset.kind!=='image')errors.push('首尾帧只接受图片。');if(ref.role==='guide'){

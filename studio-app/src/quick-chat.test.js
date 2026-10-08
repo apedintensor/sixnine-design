@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createQuickChatClient} from './quick-chat-client.js';
-import {createQuickChatController} from './quick-chat-controller.js';
+import {createQuickChatController,saveMaterialSelection} from './quick-chat-controller.js';
 import {defaultsFor,effectiveControlSchema,effectiveLimits,settingsProblems,bindingProblems,bindingPayload,bindingsToInputs,mergeTimelineTurns,isInternalDerivedInventory} from './quick-chat-model.js';
 const memory=()=>{const data=new Map();return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)};};
 const capability={recipes:[{id:'fl',mode:'fl',controls:{duration:{type:'integer',minimum:4,maximum:15,default:5},resolution:{type:'string',enum:['480P','768P'],default:'768P'},seed:{type:['string','null'],default:null},steps:{type:'integer',minimum:1,maximum:100,default:50},video_decode:{type:'string',enum:['normal','tiled'],default:'normal'}},limits:{max_images:9,max_videos:3,max_audios:3,max_total_files:12,max_guides:8,min_clip_duration:2,max_clip_duration:15,max_total_video_duration:15,max_total_audio_duration:15},execution_support:{constraints:{max_steps:50,max_duration_seconds:124/24,max_reference_files:3,max_guides:1,controls:{video_decode:['tiled']},input_limits:{max_images:1,max_videos:1,max_audios:1,max_video_duration_seconds:10,max_audio_duration_seconds:10,guide_kinds:['image'],guide_recipe_ids:['ref']}}},deployment_preset:{controls:{video_decode:'tiled'}}}]};
@@ -83,4 +83,31 @@ test('direct-card opt-in never silently changes assistant or discussion requests
   assert.equal(calls.length,0);assert.equal(controller.getState().pending,null);
   await controller.turn('讨论这个镜头。','gemini-3.8-flash','discuss');
   assert.equal(calls[0].assistant_mode,'discuss');assert.equal('create_card' in calls[0],false);
+});
+
+
+test('same-mode material edit persists the complete profile/settings before binding with the new version',async()=>{
+  for(const changed of [{deployment_profile_id:'new-profile'},{deployment_profile_id:null},{controls:{steps:50}}]){
+    let session={id:'s',version:4,next_settings:{recipe_id:'fl',deployment_profile_id:'old-profile',controls:{steps:20},copies:1}},rows=[{binding_id:'binding',asset_id:'image',version:1,kind:'image',slot:'first_frame',enabled:true,asset:{status:'ready'}}];
+    const calls=[],client=fakeClient({session:async()=>({session:structuredClone(session)}),materials:async()=>({bindings:structuredClone(rows)}),patchSession:async(_id,body)=>{assert.equal(body.expected_version,4);calls.push('settings');session={...session,version:5,next_settings:structuredClone(body.next_settings)};return {session:structuredClone(session)};},saveMaterials:async(_id,body)=>{calls.push('materials');assert.equal(body.expected_version,5);assert.equal(body.bindings[0].version,1);rows=body.bindings.map(item=>({...item,version:2}));session={...session,version:6};return {bindings:rows};}}),controller=createQuickChatController({client,storage:memory()});
+    await controller.setAccount('qc-review');await controller.open('s');const original=controller.getState(),next={...original.session.next_settings,...changed};
+    await saveMaterialSelection(controller,{original,next,proposed:original.materials.map(binding=>({...binding,enabled:false}))});
+    assert.deepEqual(calls,['settings','materials']);assert.deepEqual(controller.getState().session.next_settings,next);assert.equal(controller.getState().materials[0].enabled,false);
+    await controller.open('s');assert.deepEqual(controller.getState().session.next_settings,next);assert.equal(controller.getState().pending,null);
+  }
+});
+
+test('material selection refuses stale session versions before applying the pending profile',async()=>{
+  let version=1,calls=0;const client=fakeClient({session:async()=>({session:{id:'s',version,next_settings:{recipe_id:'fl'}}}),patchSession:async()=>{calls++;},saveMaterials:async()=>{calls++;}}),controller=createQuickChatController({client,storage:memory()});
+  await controller.setAccount('qc-review');await controller.open('s');const original=controller.getState();version=2;await controller.poll();
+  await assert.rejects(saveMaterialSelection(controller,{original,next:{recipe_id:'fl',deployment_profile_id:'new'},proposed:[]}));assert.equal(calls,0);
+});
+
+test('profile save failure or account switch during PATCH cannot continue material writes',async()=>{
+  for(const scenario of ['conflict','account-change']){
+    let finish,materialWrites=0;const client=fakeClient({session:async()=>({session:{id:'s',version:1,next_settings:{recipe_id:'fl'}}}),patchSession:async()=>{if(scenario==='conflict')throw Object.assign(Error('version conflict'),{status:409});return new Promise(resolve=>{finish=resolve;});},saveMaterials:async()=>{materialWrites++;}}),controller=createQuickChatController({client,storage:memory()});
+    await controller.setAccount('qc-review');await controller.open('s');const original=controller.getState(),saving=saveMaterialSelection(controller,{original,next:{recipe_id:'fl',deployment_profile_id:'new'},proposed:[]});
+    const rejected=assert.rejects(saving);if(scenario==='account-change'){await controller.setAccount('other-account');finish({session:{id:'s',version:2,next_settings:{recipe_id:'fl',deployment_profile_id:'new'}}});}await rejected;
+    assert.equal(materialWrites,0);if(scenario==='account-change')assert.equal(controller.getState().session,null);
+  }
 });

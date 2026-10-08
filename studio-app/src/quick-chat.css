@@ -223,3 +223,5 @@
 .qc-toast{bottom:15px;font-size:11px}
 .qc-materials-compact .qc-material{max-width:260px}
 .qc-cost{max-width:100%}}
+
+.qc-sidebar .qc-operator-entry{display:flex;gap:8px;align-items:center;font-size:11px;text-decoration:none;color:#6d8063;padding:9px 4px;margin:0 0 6px}.qc-deployment-field{margin:4px 0 8px!important;max-width:100%}.qc-deployment-field select{max-width:100%;width:100%;font-size:11px}.qc-deployment-field>small{display:block;font-size:10px;color:#8b967e;margin-top:4px}.qc-composer .qc-deployment-field{max-width:480px}.qc-timing-hint{font-size:11px;color:#718064;padding:10px 0;line-height:1.6}.qc-timing-hint summary{cursor:pointer}.qc-timing-hint ul{padding-left:17px}.qc-timing-hint small{display:block;color:#89967e}
