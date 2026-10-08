@@ -11,7 +11,7 @@ export function recipeFor(capabilities,settings={}){
   const profile=capabilities?.deployment_profiles?.find(item=>item.id===settings.deployment_profile_id),support=profile?.generation_support?.[base.mode];
   // An explicit deployment never inherits another pool's clamps or presets.
   // Keep authored values; backend preflight validates the selected profile.
-  return {...base,model_id:profile?.model_id||base.model_id,controls:support?.controls||base.controls,execution_support:support||{configured:false,enabled:false,reason:'原部署配方当前未公开。'},deployment_preset:null};
+  return {...base,model_id:profile?.model_id||base.model_id,controls:support?.controls||base.controls,limits:support?.limits||{},custom_canvas_constraints:support?.custom_canvas_constraints||null,execution_support:support||{configured:false,enabled:false,reason:'原部署配方当前未公开。'},deployment_preset:null};
 }
 export function effectiveControlSchema(recipe){
   const envelope=recipe?.execution_support?.constraints||{},result={};
@@ -43,8 +43,9 @@ export function defaultsFor(capabilities,recipeId,deploymentProfileId=null){
 }
 export function effectiveLimits(recipe){
   const base=recipe?.limits||{},envelope=recipe?.execution_support?.constraints||{},pool=envelope.input_limits||{};
-  return {max_images:minimum(base.max_images,pool.max_images),max_videos:minimum(base.max_videos,pool.max_videos),max_audios:minimum(base.max_audios,pool.max_audios),max_total_files:minimum(base.max_total_files,envelope.max_reference_files),max_guides:minimum(base.max_guides,envelope.max_guides),min_clip_duration:base.min_clip_duration??null,max_clip_duration:minimum(base.max_clip_duration,pool.max_video_duration_seconds,pool.max_audio_duration_seconds),max_total_video_duration:minimum(base.max_total_video_duration,pool.max_video_duration_seconds),max_total_audio_duration:minimum(base.max_total_audio_duration,pool.max_audio_duration_seconds),guide_kinds:pool.guide_kinds||['image','video','audio'],guide_recipe_ids:pool.guide_recipe_ids||null,max_guide_time_seconds:pool.max_guide_time_seconds??null,allow_first_last:envelope.allow_first_last!==false,allow_video_audio:pool.allow_video_audio!==false,max_image_pixels:pool.max_image_pixels??null,max_video_pixels:pool.max_video_pixels??null};
+  return {max_images:minimum(base.max_images,pool.max_images),max_videos:minimum(base.max_videos,pool.max_videos),max_audios:minimum(base.max_audios,pool.max_audios),max_total_files:minimum(base.max_total_files,envelope.max_reference_files),max_guides:minimum(base.max_guides,envelope.max_guides),min_clip_duration:base.min_clip_duration??null,max_clip_duration:base.max_clip_duration??null,max_video_clip_duration:minimum(base.max_video_clip_duration,base.max_clip_duration,pool.max_video_duration_seconds),max_audio_clip_duration:minimum(base.max_audio_clip_duration,base.max_clip_duration,pool.max_audio_duration_seconds),max_total_video_duration:minimum(base.max_total_video_duration,pool.max_video_duration_seconds),max_total_audio_duration:minimum(base.max_total_audio_duration,pool.max_audio_duration_seconds),guide_kinds:pool.guide_kinds||['image','video','audio'],guide_recipe_ids:pool.guide_recipe_ids||null,max_guide_time_seconds:pool.max_guide_time_seconds??null,allow_first_last:envelope.allow_first_last!==false,allow_video_audio:pool.allow_video_audio!==false,max_image_pixels:pool.max_image_pixels??null,max_video_pixels:pool.max_video_pixels??null};
 }
+export function clipLimits(limits,kind){return {minimum:limits?.min_clip_duration??null,maximum:limits?.[`max_${kind}_clip_duration`]??limits?.max_clip_duration??null};}
 export function mediaDuration(asset){const meta=asset?.metadata||{};return meta.source_duration??meta.duration??meta.duration_s??null;}
 export function hasOriginalAudio(asset){return asset?.metadata?.has_audio!==false;}
 export function referenceDuration(ref,asset){return ref.end!==undefined&&ref.start!==undefined?ref.end-ref.start:mediaDuration(asset);}
@@ -62,7 +63,8 @@ export function inputProblems(refs,assets,recipe,{requireReference=false,control
     const entries=active.filter(ref=>['reference','guide'].includes(ref.role)&&byId.get(ref.asset_id)?.kind===kind),unique=new Map(entries.map(ref=>[ref.asset_id,ref]));
     const max=limits[`max_${kind==='image'?'images':kind==='video'?'videos':'audios'}`];if(Number.isFinite(max)&&unique.size>max)errors.push(`${{image:'图片',video:'视频',audio:'音频'}[kind]}最多 ${max} 份（参考和锚点共用）。`);
     if(kind!=='image'){
-      let total=0;for(const ref of unique.values()){const asset=byId.get(ref.asset_id),duration=referenceDuration(ref,asset),source=mediaDuration(asset);if(!Number.isFinite(duration)||duration<(limits.min_clip_duration??2)||duration>(limits.max_clip_duration??15)||ref.start!==undefined&&(!Number.isFinite(ref.start)||!Number.isFinite(ref.end)||ref.start<0||Number.isFinite(source)&&ref.end>source))errors.push(`「${asset.file_name||'素材'}」需选择 ${limits.min_clip_duration??'?'}–${limits.max_clip_duration??'?'} 秒的有效片段。`);else total+=duration;}
+      const clip=clipLimits(limits,kind);
+      let total=0;for(const ref of unique.values()){const asset=byId.get(ref.asset_id),duration=referenceDuration(ref,asset),source=mediaDuration(asset);if(!Number.isFinite(duration)||duration<(clip.minimum??2)||duration>(clip.maximum??15)||ref.start!==undefined&&(!Number.isFinite(ref.start)||!Number.isFinite(ref.end)||ref.start<0||Number.isFinite(source)&&ref.end>source))errors.push(`「${asset.file_name||'素材'}」需选择 ${clip.minimum??'?'}–${clip.maximum??'?'} 秒的有效片段。`);else total+=duration;}
       const maximum=limits[`max_total_${kind}_duration`];if(Number.isFinite(maximum)&&total>maximum+1e-6)errors.push(`${kind==='video'?'视频':'音频'}累计片段最多 ${maximum} 秒。`);
     }
   }

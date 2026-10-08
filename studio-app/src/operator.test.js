@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createOperatorClient} from './operator-client.js';
 import {createOperatorController} from './operator-controller.js';
 import {allowed,profileSelection} from './operator-model.js';
-import {recipeFor,effectiveControlSchema,effectiveLimits} from './quick-chat-model.js';
+import {recipeFor,effectiveControlSchema,effectiveLimits,clipLimits,inputProblems} from './quick-chat-model.js';
 
 const memory=()=>{const data=new Map();return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)};};
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
@@ -61,4 +61,23 @@ test('explicit deployment receives own control schema without legacy pool limits
   const capabilities={recipes:[base],deployment_profiles:[{id:'bf16',model_id:'base-bf16',generation_support:{fl:{configured:false,enabled:false,controls:{steps:{type:'integer',maximum:50}},constraints:{input_limits:{max_images:2}}}}}]};
   const settings={recipe_id:'fl',deployment_profile_id:'bf16',controls:{steps:50}},selected=recipeFor(capabilities,settings);
   assert.equal(effectiveControlSchema(selected).steps.maximum,50);assert.equal(effectiveLimits(selected).max_images,2);assert.equal(selected.deployment_preset,null);assert.equal(selected.model_id,'base-bf16');assert.equal(settings.controls.steps,50);assert.equal(recipeFor(capabilities,{recipe_id:'fl'}),base);assert.equal(effectiveControlSchema(base).steps.maximum,20);
+});
+
+test('explicit REF profile keeps audio and video clip limits separate from each other and legacy limits',()=>{
+  const base={id:'ref',mode:'ref',limits:{min_clip_duration:2,max_clip_duration:3,max_images:9},controls:{},custom_canvas_constraints:{maximum_pixel_area:400000},execution_support:{constraints:{input_limits:{max_audio_duration_seconds:3}}}};
+  const support={controls:{},limits:{min_clip_duration:2,max_clip_duration:5.2,max_video_clip_duration:56/24,max_audio_clip_duration:5.2,max_total_video_duration:56/24,max_total_audio_duration:5.2,max_images:1,max_videos:1,max_audios:1,max_guides:0},constraints:{input_limits:{max_video_duration_seconds:56/24,max_audio_duration_seconds:5.2}}};
+  const capabilities={recipes:[base],deployment_profiles:[{id:'native',generation_support:{ref:support}}]},selected=recipeFor(capabilities,{recipe_id:'ref',deployment_profile_id:'native'}),limits=effectiveLimits(selected);
+  assert.deepEqual(clipLimits(limits,'audio'),{minimum:2,maximum:5.2});assert.deepEqual(clipLimits(limits,'video'),{minimum:2,maximum:56/24});assert.equal(selected.custom_canvas_constraints,null);
+  const refs=[{asset_id:'audio',role:'reference'},{asset_id:'video',role:'reference',use_audio:false}],assets=[{id:'audio',kind:'audio',file_name:'voice.wav',metadata:{duration:5.2}},{id:'video',kind:'video',file_name:'motion.mp4',metadata:{duration:56/24,has_audio:false}}];
+  assert.deepEqual(inputProblems(refs,assets,selected),[]);
+  assert.match(inputProblems(refs,[assets[0],{...assets[1],metadata:{duration:3}}],selected).join(' '),/motion.mp4/);
+  assert.match(inputProblems(refs,[{...assets[0],metadata:{duration:5.21}},assets[1]],selected).join(' '),/voice.wav/);
+  assert.match(inputProblems([refs[0]],[assets[0]],base).join(' '),/2–3/);
+  assert.equal(base.limits.max_clip_duration,3);assert.equal(effectiveLimits(base).max_audio_clip_duration,3);
+});
+
+test('missing explicit profile limits never inherit unrelated legacy media or custom canvas limits',()=>{
+  const base={id:'ref',mode:'ref',limits:{max_images:9,max_audios:3,max_clip_duration:3},custom_canvas_constraints:{maximum_pixel_area:1},controls:{}};
+  const selected=recipeFor({recipes:[base],deployment_profiles:[{id:'draft',generation_support:{ref:{controls:{}}}}]},{recipe_id:'ref',deployment_profile_id:'draft'});
+  assert.deepEqual(selected.limits,{});assert.equal(effectiveLimits(selected).max_audio_clip_duration,null);assert.equal(selected.custom_canvas_constraints,null);assert.equal(recipeFor({recipes:[base]},{recipe_id:'ref'}),base);
 });
