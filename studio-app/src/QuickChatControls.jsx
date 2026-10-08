@@ -1,5 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {X,Settings2} from 'lucide-react';
+import {DeploymentProfileSelect} from './DeploymentProfile.jsx';
 import {CONTROL_LABELS,CONTROL_GROUPS,clone,defaultsFor,effectiveControlSchema,recipeFor,settingsProblems,bindingParticipates} from './quick-chat-model.js';
 export function ChatDialog({title,onClose,children,wide=false,className='',eyebrow=''}){
   const ref=useRef(),opener=useRef(globalThis.document?.activeElement);
@@ -18,10 +19,10 @@ export default function QuickChatControls({capabilities,settings,bindings=[],car
   const set=(field,value)=>setDraft(current=>({...current,controls:{...current.controls,[field]:value}}));
   const fields=names=>names.filter(name=>schema[name]).map(name=><Control key={name} field={name} schema={schema[name]} value={draft.controls?.[name]} onChange={value=>set(name,value)}/>);
   function effectiveMode(intent){if(intent!=='auto')return intent;return bindings.some(b=>b.enabled!==false&&['first_frame','last_frame'].includes(b.slot))?'fl':bindings.some(b=>b.enabled!==false&&b.slot!=='guides')?'ref':'fl';}
-  function target(intent){return capabilities?.recipes?.find(item=>item.mode===effectiveMode(intent));}
+  function target(intent){const base=capabilities?.recipes?.find(item=>item.mode===effectiveMode(intent));return base?recipeFor(capabilities,{...draft,recipe_id:base.id}):null;}
   function applyMode(intent){
     const next=target(intent);if(!next){setError('服务尚未开放这种生成方式。');return;}
-    const defaults=defaultsFor(capabilities,next.id),nextSchema=effectiveControlSchema(next),controls={...defaults.controls};
+    const defaults=defaultsFor(capabilities,next.id,draft.deployment_profile_id),nextSchema=effectiveControlSchema(next),controls={...defaults.controls};
     for(const [field,value]of Object.entries(draft.controls||{}))if(nextSchema[field]&&(!nextSchema[field].enum||nextSchema[field].enum.includes(value)))controls[field]=value;
     setDraft({...draft,recipe_id:next.id,controls});setMode(intent);setPendingMode(null);setError('');
   }
@@ -44,7 +45,7 @@ export default function QuickChatControls({capabilities,settings,bindings=[],car
     <form onSubmit={save}>
       <p className="qc-muted">按常用程度排列 · 可用范围以当前服务与预检为准</p>
       {!recipe?<p role="alert">尚未读取到服务能力，不能猜测支持的参数。</p>:<>
-        <label className="qc-field"><span>生成方式</span><select aria-label="生成方式" value={pendingMode?.intent||mode} onChange={e=>changeMode(e.target.value)}>
+        <DeploymentProfileSelect capabilities={capabilities} value={draft.deployment_profile_id} mode={recipe?.mode} disabled={busy} onChange={value=>setDraft({...draft,deployment_profile_id:value})}/><label className="qc-field"><span>生成方式</span><select aria-label="生成方式" value={pendingMode?.intent||mode} onChange={e=>changeMode(e.target.value)}>
           <option value="auto">自动匹配素材</option>{['fl','ref'].filter(value=>capabilities.recipes.some(item=>item.mode===value)).map(value=><option key={value} value={value}>{value==='fl'?'首尾帧':'全能参考'}</option>)}
         </select></label>
         <p className="qc-muted">首尾帧与全能参考互斥。切换后不兼容的素材会保留，但不会加入任务。{mode==='auto'?`当前匹配：${recipe.mode==='fl'?'文生 / 首尾帧':'全能参考'}。`:''}</p>

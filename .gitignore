@@ -185,3 +185,14 @@
 !studio-app/src/workspace-navigation.test.js
 !studio-app/src/workspace-resume.test.js
 !studio-app/vite.config.js
+
+# Operator control console source only.
+!OPERATOR-CONSOLE-INTEGRATION.md
+!studio-app/src/OperatorConsole.jsx
+!studio-app/src/OperatorEntry.jsx
+!studio-app/src/DeploymentProfile.jsx
+!studio-app/src/operator-client.js
+!studio-app/src/operator-controller.js
+!studio-app/src/operator-model.js
+!studio-app/src/operator.css
+!studio-app/src/operator.test.js

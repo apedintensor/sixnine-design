@@ -5,7 +5,14 @@ export const CONTROL_LABELS={duration:'生成时长（秒）',resolution:'原生
 export const CONTROL_GROUPS=[['常用设置',['duration','resolution','aspect_ratio','generate_audio']],['参考与时间',['ref_image_size']],['随机性与采样',['seed','steps','sampler_name','scheduler','denoise']],['音画日程 · 实验项',['shift_video','shift_audio']],['运行与导出',['video_decode','audio_decode','encoder_device','video_tile_size','video_overlap','video_temporal_size','video_temporal_overlap','export_crf','audio_tile_size','audio_overlap']]];
 export const clone=value=>structuredClone(value);
 const minimum=(...values)=>{const known=values.filter(Number.isFinite);return known.length?Math.min(...known):null;};
-export function recipeFor(capabilities,settings={}){return capabilities?.recipes?.find(recipe=>recipe.id===settings.recipe_id)||capabilities?.recipes?.find(recipe=>recipe.mode==='fl')||null;}
+export function recipeFor(capabilities,settings={}){
+  const base=capabilities?.recipes?.find(recipe=>recipe.id===settings.recipe_id)||capabilities?.recipes?.find(recipe=>recipe.mode==='fl')||null;
+  if(!base||!settings.deployment_profile_id)return base;
+  const profile=capabilities?.deployment_profiles?.find(item=>item.id===settings.deployment_profile_id),support=profile?.generation_support?.[base.mode];
+  // An explicit deployment never inherits another pool's clamps or presets.
+  // Keep authored values; backend preflight validates the selected profile.
+  return {...base,model_id:profile?.model_id||base.model_id,controls:support?.controls||base.controls,execution_support:support||{configured:false,enabled:false,reason:'原部署配方当前未公开。'},deployment_preset:null};
+}
 export function effectiveControlSchema(recipe){
   const envelope=recipe?.execution_support?.constraints||{},result={};
   for(const [field,raw]of Object.entries(recipe?.controls||{})){
@@ -25,8 +32,8 @@ export function effectiveControlSchema(recipe){
   }
   return result;
 }
-export function defaultsFor(capabilities,recipeId){
-  const recipe=recipeFor(capabilities,{recipe_id:recipeId});if(!recipe)return {recipe_id:recipeId||'',controls:{},copies:1};
+export function defaultsFor(capabilities,recipeId,deploymentProfileId=null){
+  const recipe=recipeFor(capabilities,{recipe_id:recipeId,deployment_profile_id:deploymentProfileId});if(!recipe)return {recipe_id:recipeId||'',controls:{},copies:1};
   const schema=effectiveControlSchema(recipe),preset=recipe.deployment_preset?.controls||{},controls={};
   for(const [field,item]of Object.entries(schema))if(item.available!==false&&!['guides','video_audio'].includes(field)&&Object.hasOwn(item,'default')){
     let value=clone(item.default);if(item.enum&&!item.enum.includes(value))value=item.enum[0];if(Number.isFinite(value)&&Number.isFinite(item.maximum))value=Math.min(value,item.maximum);controls[field]=value;
