@@ -53,6 +53,10 @@ test('model, mode, window changes and refresh invalidate selected allocation, co
   }
   const refreshed=operatorMarketReducer(state,{type:'scan'});
   assert.equal(refreshed.preview,null);assert.equal(refreshed.selection,null);assert.equal(refreshed.confirmed,false);
+  const returned=operatorMarketReducer(state,{type:'back'});
+  assert.equal(returned.result,result);assert.deepEqual(returned.query,query);
+  assert.equal(returned.selection,null);assert.equal(returned.preview,null);assert.equal(returned.confirmed,false);
+  assert.equal(operatorMarketReducer(returned,{type:'preview',revision:state.revision,preview:{preview_id:'late'}}),returned);
 });
 
 test('candidate freshness needs matching query and current provider and row observations',()=>{

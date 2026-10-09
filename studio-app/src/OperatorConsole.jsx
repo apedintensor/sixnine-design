@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore} from 'react';
-import {ArrowLeft,ArrowUpRight,Check,Cpu,Info,LogOut,Pause,Play,Plus,RefreshCw,Server,Settings2,ShieldCheck,Square,X} from 'lucide-react';
+import {ArrowLeft,ArrowUpRight,Cpu,Info,LogOut,Pause,Play,Plus,RefreshCw,Server,Settings2,ShieldCheck,Square,X} from 'lucide-react';
 import {useCloud} from './CloudStudio.jsx';
 import {cloudController as cloud} from './cloud-controller.js';
 import {createOperatorController} from './operator-controller.js';
@@ -41,9 +41,9 @@ function PolicyDialog({policy,busy,onSave,onClose}){
   return <Dialog title="全局运行上限" subtitle="所有人工启动与自动扩容共同遵守这些上限。" onClose={onClose}><form onSubmit={async e=>{e.preventDefault();setError('');try{const {version,...values}=draft;await onSave({...values,expected_version:policy.version});onClose();}catch(error){setError(error.message);}}}><label className="op-check"><input type="checkbox" checked={draft.enabled===true} onChange={e=>setDraft({...draft,enabled:e.target.checked})}/>允许容量服务启动新机器</label><p className="op-note">关闭后保留已接受任务和待核对的租赁，不等于强制停止所有机器。</p><div className="op-form-grid">{fields.map(([key,label,unit])=><label key={key}>{label}<div className="op-unit-input"><input type="number" required min={key==='max_ttl_seconds'?120:key==='idle_shutdown_seconds'?1:0} step="1" value={draft[key]??''} onChange={e=>setDraft({...draft,[key]:Number(e.target.value)})}/><span>{unit}</span></div></label>)}<label>全局整机费率上限<div className="op-unit-input"><input type="number" required min="0" step="0.01" value={draft.max_hourly_cost_microusd==null?'':draft.max_hourly_cost_microusd/1e6} onChange={e=>setDraft({...draft,max_hourly_cost_microusd:Math.round(Number(e.target.value)*1e6)})}/><span>USD / 小时</span></div></label></div><p className="op-note">修改不会重置累计费用或延长已有机器 TTL。保存时核对策略版本 {policy.version}。</p>{error&&<p role="alert" className="op-error">{error}</p>}<footer className="op-dialog-actions"><button type="button" onClick={onClose}>取消</button><button className="op-primary" disabled={busy}>保存上限</button></footer></form></Dialog>;
 }
 
-function CandidateCard({row,index,current,selected,busy,onSelect}){
-  const readiness=operatorOfferReadiness(row),stock=Number.isFinite(row.available_count)&&row.available_count>0;
-  return <article className={'op-candidate'+(selected?' selected':'')}>
+function CandidateCard({row,index,current,busy,onStart}){
+  const readiness=operatorOfferReadiness(row),stock=Number.isFinite(row.available_count)&&row.available_count>0,blocked=!!row.blockers?.length;
+  return <article className="op-candidate">
     <header><span className="op-candidate-rank">{String(index+1).padStart(2,'0')}</span><div><span className="op-candidate-provider">{providerLabel(row.provider)} · {row.offer_kind==='resource_sku'?'资源规格 SKU':'指定执行机器'}</span><h4>{row.gpu_type} <span>× {known(row.gpu_count)}</span></h4></div><span className={'op-badge '+(current&&readiness==='待启动预览'?'good':'warn')}>{current?readiness:'库存待刷新'}</span></header>
     <div className="op-candidate-price"><strong>{dollars(row.hourly_cost_microusd,{digits:3})}<small> / 小时</small></strong><span>整组 {known(row.gpu_count)} 张 GPU 的报价<br/>每卡 {dollars(row.price_per_gpu_hour_microusd,{digits:3})} / 小时</span></div>
     <dl className="op-candidate-specs"><div><dt>系统内存</dt><dd>{roundedSpec(row.ram_gib,'GiB')}</dd></div><div><dt>可用磁盘</dt><dd>{roundedSpec(row.disk_gib,'GiB')}</dd></div><div><dt>下载带宽</dt><dd>{roundedSpec(row.download_mbps,'Mbps')}</dd></div><div><dt>当前可用</dt><dd>{known(row.available_count)} {row.offer_kind==='resource_sku'?'份配置':'台'}</dd></div></dl>
@@ -51,12 +51,12 @@ function CandidateCard({row,index,current,selected,busy,onSelect}){
     <div className="op-rank-reasons">{(row.rank_reasons||[]).map(operatorRankReason).filter(Boolean).map(text=><span key={text}>{text}</span>)}</div>
     <Reasons items={row.blockers||[]}/>{row.preference_hints?.length>0&&<p className="op-note">{row.preference_hints.map(reasonText).join(' ')}</p>}
     <details className="op-details"><summary>{row.offer_kind==='resource_sku'?'资源规格与观测':'机器身份与观测'}</summary><p><code>{row.offer_id}</code></p><p>{row.offer_kind==='resource_sku'?'这是供应商资源规格，创建后才分配具体主机。':'预览绑定此执行器，不会自动换成同型号的其他机器。'}</p><p>观测于 {date(row.observed_at)}{row.country&&` · ${row.country}`}</p></details>
-    <footer><span>{selected?<><Check size={13}/>已选中此配置</>:'选择后仅预览，不会租赁'}</span><button className={selected?'op-primary':''} type="button" aria-pressed={selected} disabled={busy||!current||!stock} onClick={()=>onSelect(row)}>{selected?'重新预览这项':'选择并预览'}<ArrowUpRight size={13}/></button></footer>
+    <footer><span>{!current?'请刷新库存':blocked?'启动条件见上方说明':'点击后核对费用并开机'}</span><button className="op-primary" type="button" disabled={busy||!current||!stock||blocked} onClick={()=>onStart(row)}><Play size={13}/>{row.offer_kind==='resource_sku'?'按此规格启动':'启动这台'}</button></footer>
   </article>;
 }
 function StartDrawer({catalog,policy,controller,busy,onClose}){
   const models=useMemo(()=>operatorModels(catalog),[catalog]),[market,dispatch]=useReducer(operatorMarketReducer,policy,initialOperatorMarket),[now,setNow]=useState(Date.now());
-  const {query,result,row,selection,preview,confirmed,error}=market;
+  const {query,result,row,selection,preview,error}=market;
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
   const model=models.find(item=>item.id===query.model_id),profile=model?.profiles.find(item=>item.id===selection?.runtime_profile_id);
   const ttl=runtimeDuration(policy,null,query.ttl_seconds),expired=!!preview&&preview.expires_at*1000<=now;
@@ -76,10 +76,21 @@ function StartDrawer({catalog,policy,controller,busy,onClose}){
     catch(error){dispatch({type:'error',revision,error:error.message});}
   }
   async function start(){
-    if(!canStart||!confirmed)return;
+    if(!canStart)return;
     try{await controller.start(preview);onClose();}catch(error){dispatch({type:'error',revision:market.revision,error:error.message});}
   }
-  return <Dialog wide title="为模型选择机器" subtitle="选模型与输入方式，再比较当前可用配置。" onClose={onClose}>
+  function back(){dispatch({type:'back'});}
+  if(selection)return <Dialog key="start-confirmation" title={row?.offer_kind==='resource_sku'?'确认按此规格启动':'确认启动这台机器'} subtitle={`${providerLabel(selection.provider)} · ${selection.gpu_type} × ${selection.gpu_count}`} onClose={back}>
+    <p className="op-note">{model?.label} · {query.mode==='fl'?'FL2VA 首尾帧':'Ref2VA 全能参考'} · 最多运行 {duration(selection.ttl_seconds)}</p>
+    {market.loading==='preview'&&<p role="status">正在核对库存与费用…</p>}
+    {preview&&<div className="op-preview"><div><b>{expired?'费用确认已过期':!matches?'机器身份不一致':!current?'库存观测已过期':canStart?'确认后开始租机':'暂时不能启动'}</b></div><dl><dt>整机当前报价</dt><dd>{dollars((preview.selected_offer||row)?.hourly_cost_microusd,{digits:3})} / 小时</dd><dt>本次预算预留</dt><dd>{dollars(preview.reservation_microusd)}</dd><dt>最多运行</dt><dd>{duration(selection.ttl_seconds)}</dd></dl><Reasons items={preview.blockers}/>{preview.policy_version!==policy.version&&<p className="op-error">运行策略已更新，请返回重新查询。</p>}
+      <details className="op-details"><summary>费用与部署详情</summary><p>预留上限 {dollars(preview.estimated_hourly_cost_microusd)} / 小时；费用确认有效至 {date(preview.expires_at)}。</p><p>机器或规格：<code>{selection.offer_id}</code></p>{Number.isFinite(preview.minimum_ttl_seconds)&&<p>最短启动窗口：{duration(preview.minimum_ttl_seconds)}</p>}{profile&&<RecipeEvidence profile={profile}/>}</details>
+      <p className="op-note">下载、准备和空闲也计费。预留不是最终账单；仅启动这项配置，不自动换机器。</p>
+    </div>}
+    {error&&<p className="op-error" role="alert">{error}</p>}
+    <footer className="op-dialog-actions"><button disabled={busy} onClick={back}><ArrowLeft size={14}/>返回机器列表</button><button className="op-primary" disabled={busy||!canStart} onClick={start}><Play size={15}/>{busy?'正在处理…':'确认费用并启动'}</button></footer>
+  </Dialog>;
+  return <Dialog key="machine-list" wide title="为模型选择机器" subtitle="选模型与输入方式，在机器卡片上启动。" onClose={onClose}>
     <fieldset disabled={busy}>
       <section className="op-model-choice"><label>模型与精度<select aria-label="模型与精度" value={query.model_id} onChange={e=>change({model_id:e.target.value})}><option value="">请选择模型</option>{models.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
         <div><span className="op-field-label">输入方式</span><div className="op-mode-options" role="group" aria-label="机器生成模式">{[['fl','FL2VA','首尾帧'],['ref','Ref2VA','全能参考']].map(([mode,label,note])=><button type="button" key={mode} aria-pressed={query.mode===mode} onClick={()=>change({mode})}><b>{label}</b><small>{note}</small></button>)}</div></div>
@@ -89,17 +100,10 @@ function StartDrawer({catalog,policy,controller,busy,onClose}){
       <div className="op-market-query"><button className="op-primary" type="button" disabled={busy||!model||!!ttl.problem} onClick={scan}><RefreshCw size={14}/>{market.loading==='candidates'?'正在查询…':result?'刷新兼容机器':'查看兼容机器'}</button><span>只查询库存，不租机、不预留预算</span><details className="op-details op-start-window"><summary>启动窗口 · {duration(query.ttl_seconds)}</summary><label>最多运行多久<div className="op-unit-input"><input type="number" min="2" max={ttl.maximumMinutes??undefined} step="1" value={query.ttl_seconds/60} onChange={e=>change({ttl_seconds:Number(e.target.value)*60})}/><span>分钟</span></div></label><p>当前策略上限 {ttl.maximumMinutes??'尚未确认'} 分钟。窗口包含下载、准备和运行，是本次安全停止上限，不是机器保活保证；修改后重新查询与预览。</p></details></div>
       {result?<section className="op-candidates" aria-label="兼容机器列表"><div className="op-candidates-heading"><h3>选一个适合本次任务的配置</h3><small>{age(result.observed_at,now)}更新</small></div><p className="op-note" role="status">{operatorMarketSummary(result,now)}</p>
         <div className="op-market-providers">{['lium','targon'].map(provider=>{const observation=operatorMarketProvider(result,provider,now);return <details className="op-details" key={provider}><summary><b>{providerLabel(provider)}</b><span className={'op-badge '+(observation.fresh?'neutral':'warn')}>{observation.label}</span><small>{age(observation.observed_at,now)}</small></summary><p>观测于 {date(observation.observed_at)}{observation.reason_code&&<> · {reasonText(observation.reason_code)}</>}</p></details>;})}</div>
-        {result.candidates?.length?<div className="op-candidate-grid">{result.candidates.map((candidate,index)=><CandidateCard key={operatorCandidateKey(candidate)} row={candidate} index={index} current={operatorCandidateCurrent(result,query,candidate,now)} selected={!!row&&operatorCandidateKey(candidate)===operatorCandidateKey(row)} busy={busy||!operatorCandidateSelection(catalog,query,candidate)} onSelect={choose}/>)}</div>:<div className="op-market-empty"><Server size={25}/><p>暂无可展示的兼容配置</p><small>保留所选模型与模式，稍后刷新库存。</small></div>}
+        {result.candidates?.length?<div className="op-candidate-grid">{result.candidates.map((candidate,index)=><CandidateCard key={operatorCandidateKey(candidate)} row={candidate} index={index} current={operatorCandidateCurrent(result,query,candidate,now)} busy={busy||!operatorCandidateSelection(catalog,query,candidate)} onStart={choose}/>)}</div>:<div className="op-market-empty"><Server size={25}/><p>暂无可展示的兼容配置</p><small>保留所选模型与模式，稍后刷新库存。</small></div>}
       </section>:<div className="op-market-empty"><Server size={27}/><p>{market.loading==='candidates'?'正在核对兼容机器…':model?'查看该模型的兼容机器':'先选想运行的模型'}</p><small>GPU 型号、供应商和数量将在查询结果中一起比较。</small></div>}
-      {selection&&<section className="op-selection-preview" aria-label="所选配置的启动预览"><div className="op-candidates-heading"><div><span className="op-eyebrow">REVIEW & CONFIRM</span><h3>核对这项配置</h3></div><span>{providerLabel(selection.provider)} · {selection.gpu_count} 张 GPU</span></div><p className="op-note"><code>{selection.offer_id}</code> · {query.mode==='fl'?'FL2VA':'Ref2VA'} · 启动窗口 {duration(selection.ttl_seconds)}</p>
-        {market.loading==='preview'&&<p role="status">正在核对实际配置、库存与费用…</p>}
-        {preview&&<div className="op-preview"><div><b>{expired?'预览已过期':!matches?'机器身份不一致':!current?'库存观测已过期':canStart?'当前条件允许启动':'暂时不能启动'}</b><span className={'op-badge '+(canStart?'good':'warn')}>{canStart?'待确认':'需核对'}</span></div><dl>{preview.selected_offer&&<><dt>所选配置当前整组报价</dt><dd>{dollars(preview.selected_offer.hourly_cost_microusd,{digits:3})} / 小时</dd></>}<dt>整组每小时预留上限</dt><dd>{dollars(preview.estimated_hourly_cost_microusd)} / 小时</dd><dt>本次预算预留</dt><dd>{dollars(preview.reservation_microusd)}</dd><dt>预览有效至</dt><dd>{date(preview.expires_at)}</dd>{Number.isFinite(preview.minimum_ttl_seconds)&&<><dt>此配置要求的最短窗口</dt><dd>{duration(preview.minimum_ttl_seconds)}</dd></>}</dl><Reasons items={preview.blockers}/>{preview.policy_version!==policy.version&&<p className="op-error">运行策略已更新，请重新查询并预览。</p>}
-          {hasBoundOperatorSelection(preview)&&matches&&<details className="op-details"><summary>服务器确认的部署条件</summary><p>内存 {preview.selection.filters?.min_ram_gib??'不限'} GiB · 磁盘 {preview.selection.filters?.min_disk_gib??'不限'} GiB · 下载带宽 {preview.selection.filters?.min_download_mbps??'不限'} Mbps</p><p>部署配置：<code>{preview.configuration_id}</code></p>{profile&&<RecipeEvidence profile={profile}/>}</details>}
-          <p className="op-note">预留不是最终账单。下载、环境准备和空闲也可能计费；确认只启动所选配置，不会自动购买另一项。</p>{canStart&&<label className="op-check"><input type="checkbox" checked={confirmed} onChange={e=>dispatch({type:'confirm',value:e.target.checked})}/>确认此配置、启动窗口和费用预留</label>}
-        </div>}
-      </section>}
     </fieldset>{error&&<p className="op-error" role="alert">{error}</p>}
-    <footer className="op-dialog-actions"><span className="op-confirm-note">{selection?'仅为选中的配置确认一次租赁':'选择一项配置后查看启动条件'}</span><button onClick={onClose}>关闭</button><button className="op-primary" disabled={busy||!confirmed||!canStart} onClick={start}><Play size={15}/>确认启动</button></footer>
+    <footer className="op-dialog-actions"><button onClick={onClose}>关闭</button></footer>
   </Dialog>;
 }
 

@@ -159,6 +159,7 @@ export function initialOperatorMarket(policy){
   return {query:{model_id:'',mode:'fl',ttl_seconds:runtimeDuration(policy).suggestedSeconds??0},revision:0,result:null,row:null,selection:null,preview:null,confirmed:false,loading:null,error:''};
 }
 export function operatorMarketReducer(state,action){
+  if(action.type==='back')return {...state,revision:state.revision+1,row:null,selection:null,preview:null,confirmed:false,loading:null,error:''};
   if(action.type==='change')return {...initialOperatorMarket(),query:{...state.query,...action.patch},revision:state.revision+1};
   if(action.type==='scan')return {...state,revision:state.revision+1,result:null,row:null,selection:null,preview:null,confirmed:false,loading:'candidates',error:''};
   if(action.type==='select')return {...state,revision:state.revision+1,row:action.row,selection:action.selection,preview:null,confirmed:false,loading:'preview',error:''};
