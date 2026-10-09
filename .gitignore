@@ -197,3 +197,10 @@
 !studio-app/src/operator.css
 !studio-app/src/operator.test.js
 !studio-app/src/operator-market.test.js
+
+# Shared live generation availability, including creator integration checks.
+!studio-app/src/generation-availability.js
+!studio-app/src/GenerationAvailability.jsx
+!studio-app/src/generation-availability.css
+!studio-app/src/generation-availability.test.js
+!studio-app/src/cloud-availability.test.js
