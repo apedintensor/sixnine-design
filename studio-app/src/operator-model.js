@@ -37,6 +37,16 @@ Object.assign(reasons,{
   inventory_unknown_cpu:'CPU 核数尚未上报。',inventory_cpu_below_minimum:'CPU 核数低于当前要求。',
   inventory_scan_failed:'供应商库存查询失败，请重新查询。',inventory_scan_stale:'库存观测已过期，请重新查询。',
   inventory_scanner_not_configured:'此供应商尚未配置库存查询。',
+  operator_topology_not_qualified:'此 GPU 数量与运行方式尚未验收。',
+  operator_execution_slots_unqualified:'尚未确认每张 GPU 都有匹配的执行槽。',
+  operator_offer_stale:'此报价已过期，请重新查询并选择。',operator_offer_changed:'此报价条件已改变，请重新查询并预览。',
+  operator_offer_unavailable:'此机器或资源规格已不可用，请重新查询。',
+  operator_offer_observation_unavailable:'无法确认这项报价的最新观测，请刷新库存。',
+  operator_offer_selection_mismatch:'报价与所选模型、模式或配置不一致，请重新选择。',
+  operator_exact_offer_unsupported:'此配置尚不支持绑定到指定机器，暂不能启动。',
+  operator_exact_offer_controller_unavailable:'当前控制器尚不能确认指定机器，请等待服务更新后重新预览。',
+  inventory_price_above_guidance:'报价高于此模型的参考价格。',inventory_bandwidth_below_guidance:'下载带宽低于参考值，准备可能更慢。',
+  inventory_bandwidth_unknown:'下载带宽尚未上报，无法比较准备速度。',
 });
 export function operatorMarketProvider(market,provider,now=Date.now()){
   const observation=market?.providers?.find(item=>item.provider===provider),observed=epochMs(observation?.observed_at);
@@ -116,3 +126,59 @@ export function operatorStartPayload(selection,customFilters=false){
   if(customFilters)return selection;
   const {filters,...body}=selection;return body;
 }
+
+/** Model choice is independent of the hardware-specific deployment profile. */
+export function operatorModels(catalog){
+  const groups=new Map();
+  for(const profile of catalog?.profiles||catalog?.deployment_profiles||[]){
+    if(!profile.model_id)continue;
+    if(!groups.has(profile.model_id))groups.set(profile.model_id,{id:profile.model_id,label:profile.model_id.replace(/^MiniMax-H3-?/,'H3 · ').replaceAll('-',' '),profiles:[]});
+    groups.get(profile.model_id).profiles.push(profile);
+  }
+  return [...groups.values()];
+}
+export const operatorCandidateKey=row=>JSON.stringify([row?.provider,row?.offer_id,row?.selection?.runtime_profile_id,row?.gpu_count]);
+export function operatorCandidateSelection(catalog,query,row){
+  const choice=row?.selection,profile=(catalog?.profiles||catalog?.deployment_profiles||[]).find(item=>item.id===choice?.runtime_profile_id);
+  if(!profile||profile.model_id!==query.model_id||choice.mode!==query.mode||choice.ttl_seconds!==query.ttl_seconds||choice.node_count!==1||
+    !['lium','targon'].includes(choice.provider)||choice.provider!==row.provider||choice.gpu_type!==row.gpu_type||
+    !Number.isInteger(choice.gpu_count)||choice.gpu_count<1||choice.gpu_count!==row.gpu_count||
+    typeof choice.offer_id!=='string'||!choice.offer_id||choice.offer_id!==row.offer_id||!choice.filters||typeof choice.filters!=='object')return null;
+  return structuredClone(choice);
+}
+export function operatorCandidateCurrent(result,query,row,now=Date.now()){
+  const observed=epochMs(row?.observed_at),seconds=result?.fresh_seconds||120;
+  return !!row&&result?.model_id===query.model_id&&result?.mode===query.mode&&row.selection?.ttl_seconds===query.ttl_seconds&&
+    operatorMarketProvider(result,row.provider,now).fresh&&observed!==null&&observed<=now&&now-observed<=seconds*1000;
+}
+export function operatorCandidatePreviewMatches(selection,preview){
+  return !!selection&&!!preview?.selection&&['runtime_profile_id','mode','provider','gpu_type','gpu_count','node_count','ttl_seconds','offer_id'].every(key=>preview.selection[key]===selection[key])&&
+    (!preview.selected_offer||['offer_id','provider','gpu_type','gpu_count'].every(key=>preview.selected_offer[key]===selection[key]));
+}
+export function initialOperatorMarket(policy){
+  return {query:{model_id:'',mode:'fl',ttl_seconds:runtimeDuration(policy).suggestedSeconds??0},revision:0,result:null,row:null,selection:null,preview:null,confirmed:false,loading:null,error:''};
+}
+export function operatorMarketReducer(state,action){
+  if(action.type==='change')return {...initialOperatorMarket(),query:{...state.query,...action.patch},revision:state.revision+1};
+  if(action.type==='scan')return {...state,revision:state.revision+1,result:null,row:null,selection:null,preview:null,confirmed:false,loading:'candidates',error:''};
+  if(action.type==='select')return {...state,revision:state.revision+1,row:action.row,selection:action.selection,preview:null,confirmed:false,loading:'preview',error:''};
+  if(action.type==='confirm')return {...state,confirmed:action.value};
+  if(action.revision!==state.revision)return state;
+  if(action.type==='result')return {...state,result:action.result,loading:null};
+  if(action.type==='preview')return {...state,preview:action.preview,loading:null};
+  if(action.type==='error')return {...state,error:action.error,loading:null};
+  return state;
+}
+export function operatorMarketSummary(result,now=Date.now()){
+  if(!result)return '查询后将显示 Lium 与 Targon 的兼容机器。';
+  const fresh=(result.providers||[]).some(item=>operatorMarketProvider(result,item.provider,now).fresh);
+  if(!fresh)return '库存尚未确认，请刷新查询；当前不能判断有无合适机器。';
+  if(result.candidates?.length)return `${result.candidates.length} 项兼容配置 · 已验收且满足条件的优先，再按整组价格与下载带宽排序。`;
+  return result.reason_code==='inventory_specs_unconfirmed'?'库存已查询，部分规格仍需核对，暂不能认定缺货。':'当前已核对的库存中没有兼容配置；其他供应商的未确认库存不代表缺货。';
+}
+export function operatorSlotsLabel(row){
+  return row.deployment_qualified===true&&Number.isInteger(row.execution_slots)&&row.execution_slots===row.gpu_count?
+    `${row.execution_slots} 个执行槽 · 每卡 1 槽`:'执行槽数量待验收';
+}
+export const roundedSpec=(value,unit)=>Number.isFinite(value)?`${new Intl.NumberFormat('zh-CN',{maximumFractionDigits:1}).format(value)} ${unit}`:'尚未上报';
+export const operatorRankReason=code=>({deployment_qualified:'部署已验收',deployment_pending:'部署待验收',whole_allocation_price:'按整组价格比较',bandwidth_known:'带宽已上报',bandwidth_unknown:'带宽待核对'}[code]||null);
