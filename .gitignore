@@ -196,3 +196,4 @@
 !studio-app/src/operator-model.js
 !studio-app/src/operator.css
 !studio-app/src/operator.test.js
+!studio-app/src/operator-market.test.js
