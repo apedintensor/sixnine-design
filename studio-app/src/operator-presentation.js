@@ -53,8 +53,14 @@ export function operatorNodeStatus(node,now=Date.now()){
 export function operatorCapacitySummary(snapshot,now=Date.now()){
   const groups=operatorNodeGroups(snapshot?.nodes),current=[...groups.current,...groups.pending_review];
   const unknown=node=>operatorNodeStatus(node,now).label==='状态待核对';
+  const heartbeat=epochMs(snapshot?.controller?.last_heartbeat_at);
+  const controllerCurrent=snapshot?.controller?.stale!==true&&['running','degraded'].includes(snapshot?.controller?.state)&&heartbeat!==null&&heartbeat<=now&&now-heartbeat<=60000;
+  const deadlineCurrent=value=>{const time=epochMs(value);return time!==null&&time>now;};
+  const readinessCurrent=node=>controllerCurrent&&!staleSnapshot(snapshot,now)&&operatorNodeGroup(node)==='current'&&
+    node.state==='running'&&node.desired_state==='running'&&['ready','busy'].includes(node.runtime_state)&&!unknown(node)&&
+    !nodeRemovalConfirmation(node)&&!node.reason_code&&deadlineCurrent(node.hard_deadline)&&deadlineCurrent(node.provider_safe_deadline);
   return {stale:staleSnapshot(snapshot,now),
-    ready_slots:current.reduce((n,node)=>n+(!historicalNode(node)&&!unknown(node)?(node.slots||[]).filter(slot=>slot.state==='ready'&&!slot.stale).length:0),0),
+    ready_slots:current.reduce((n,node)=>n+(readinessCurrent(node)?(node.slots||[]).filter(slot=>slot.state==='ready'&&!slot.stale).length:0),0),
     starting_nodes:current.filter(node=>!unknown(node)&&['reserved','creating','starting'].includes(node.state)&&!['blocked','failed','ready','busy','draining'].includes(node.runtime_state)).length,
     unknown_nodes:current.filter(unknown).length,pending_review:groups.pending_review.length};
 }
