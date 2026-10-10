@@ -53,9 +53,10 @@ export default function DstackCapacity({account}){
   const controller=useMemo(()=>createOperatorController({client:createDstackClient(),pendingNamespace:'dstack'}),[]);
   const state=useSyncExternalStore(controller.subscribe,controller.getState,controller.getState),[now,setNow]=useState(Date.now()),[dialog,setDialog]=useState(null),[view,setView]=useState('current');
   useEffect(()=>{setDialog(null);setView('current');void controller.setAccount(account);},[account,controller]);
+  useEffect(()=>{if(!state.snapshot||!state.catalog||state.denied||state.unavailable)setDialog(null);},[state.snapshot,state.catalog,state.denied,state.unavailable]);
   useEffect(()=>()=>controller.destroy(),[controller]);
   useEffect(()=>{let stopped=false,timer;const tick=async()=>{setNow(Date.now());if(document.visibilityState!=='hidden')try{await controller.poll();}catch{}if(!stopped)timer=setTimeout(tick,5000);};timer=setTimeout(tick,5000);return()=>{stopped=true;clearTimeout(timer);};},[controller,account]);
-  const snapshot=state.snapshot,catalog=state.catalog,busy=state.busy||!!state.pending,groups=dstackGroups(snapshot?.nodes,now),enabled=catalog?.enabled===true&&snapshot?.enabled===true;
+  const snapshot=state.snapshot,catalog=state.catalog,busy=state.busy||!!state.pending,groups=dstackGroups(snapshot?.nodes,now),enabled=catalog?.enabled===true&&snapshot?.enabled===true,confirmed=!!snapshot&&!!catalog&&!state.denied&&!state.unavailable;
   const nodes=view==='history'?groups.history:[...groups.current,...groups.review];
   const selected=dialog?.node?(snapshot?.nodes||[]).find(node=>node.id===dialog.node.id)||dialog.node:null;
   return <section className="op-machine-section op-dstack-section" aria-labelledby="dstack-heading"><div className="op-section-heading"><div><span className="op-eyebrow">DSTACK · VAST / RUNPOD</span><h2 id="dstack-heading">dstack 机器</h2><p>使用现有任务与预算账本，每台机器独立运行一个模型模式。</p></div><div className="op-dstack-actions"><button aria-label="刷新 dstack 机器状态" disabled={state.loading||state.busy} onClick={()=>quietly(controller.refresh())}><RefreshCw size={15}/></button><button className="op-primary" disabled={busy||!enabled||!catalog?.profiles?.length} onClick={()=>setDialog({type:'start'})}><Plus size={16}/>启动机器</button></div></div>
@@ -68,7 +69,7 @@ export default function DstackCapacity({account}){
       <div className="op-machine-tabs" role="group" aria-label="dstack 机器记录范围"><button aria-pressed={view==='current'} onClick={()=>setView('current')}>当前与待审核 <span>{groups.current.length+groups.review.length}</span></button><button aria-pressed={view==='history'} onClick={()=>setView('history')}>历史记录 <span>{groups.history.length}</span></button></div>
       {nodes.length?<div className="op-machine-list">{nodes.map(node=>{const status=dstackNodeStatus(node,now);return <button key={node.id} className="op-dstack-row" onClick={()=>setDialog({type:'node',node})}><Server size={19}/><span><b>{dstackProvider(node.provider)} · {dstackMode(node.mode)}</b><small>{node.runtime_profile_id}</small><small>{date(node.hard_deadline)} 停止上限 · {age(node.observed_at,now)}观测</small></span><span className={'op-badge '+status.tone}>{status.label}</span><span>{dollars(node.hourly_cost_microusd,{digits:3})}<small>每小时上限</small></span></button>;})}</div>:<p className="op-note op-list-note">{view==='history'?'没有已确认结束的历史记录。':'当前没有登记在此账户的 dstack 机器。'}</p>}
     </>}
-    {dialog?.type==='start'&&<Start profiles={catalog.profiles} controller={controller} busy={busy} now={now} onClose={()=>setDialog(null)}/>}
-    {dialog?.type==='node'&&selected&&<NodeDialog key={selected.id} node={selected} controller={controller} busy={busy} now={now} onClose={()=>setDialog(null)}/>}
+    {confirmed&&dialog?.type==='start'&&<Start profiles={catalog.profiles} controller={controller} busy={busy||!enabled} now={now} onClose={()=>setDialog(null)}/>}
+    {confirmed&&dialog?.type==='node'&&selected&&<NodeDialog key={selected.id} node={selected} controller={controller} busy={busy} now={now} onClose={()=>setDialog(null)}/>}
   </section>;
 }

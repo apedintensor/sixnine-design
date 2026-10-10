@@ -64,6 +64,30 @@ test('hold and stop retain original version and key after unknown responses',asy
   assert.deepEqual(calls[2].body,{expected_version:1010});
 });
 
+test('authorization loss clears modal data without forgetting an unknown original operation',async()=>{
+  for(const status of [401,403]){
+    let denied=false;
+    const storage=memory(),calls=[];
+    const controller=createOperatorController({storage,pendingNamespace:'dstack',client:client({
+      state:async()=>{if(denied)throw Object.assign(Error('authorization lost'),{status});return {operator:{account:'superdan'},nodes:[{id:'owned-node'}]};},
+      catalog:async()=>({enabled:true,profiles:[{id:'owned-profile'}]}),
+      start:async(body,key)=>{calls.push({body,key});throw Error('unknown response');},
+    })});
+    await controller.setAccount('superdan');
+    assert.equal(controller.getState().catalog.profiles[0].id,'owned-profile');
+    await assert.rejects(controller.start({preview_id:'owned-preview'}));
+    const original=structuredClone(controller.getState().pending);
+    denied=true;
+    await assert.rejects(controller.refresh());
+    assert.equal(controller.getState().snapshot,null);
+    assert.equal(controller.getState().catalog,null);
+    assert.deepEqual(controller.getState().pending,original);
+    assert.deepEqual(JSON.parse(storage.getItem('sixnine:operator:dstack:pending:superdan')),original);
+    assert.equal(calls.length,1);
+    controller.destroy();
+  }
+});
+
 test('acknowledged command remains accepted when the subsequent read fails',async()=>{
   let acknowledged=false;
   const controller=createOperatorController({storage:memory(),pendingNamespace:'dstack',client:client({
