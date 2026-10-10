@@ -1,4 +1,4 @@
-import {epochMs,nodeRemovalConfirmation,stateLabel,staleSnapshot} from './operator-model.js';
+import {epochMs,nodeDeadline,nodeRemovalConfirmation,stateLabel,staleSnapshot} from './operator-model.js';
 
 export function uniqueOperatorReasons(items=[]){
   const seen=new Set();return items.filter(item=>{const code=typeof item==='string'?item:item?.code;if(!code||seen.has(code))return false;seen.add(code);return true;});
@@ -57,8 +57,9 @@ export function operatorCapacitySummary(snapshot,now=Date.now()){
   const controllerCurrent=snapshot?.controller?.stale!==true&&['running','degraded'].includes(snapshot?.controller?.state)&&heartbeat!==null&&heartbeat<=now&&now-heartbeat<=60000;
   const deadlineCurrent=value=>{const time=epochMs(value);return time!==null&&time>now;};
   const readinessCurrent=node=>controllerCurrent&&!staleSnapshot(snapshot,now)&&operatorNodeGroup(node)==='current'&&
-    node.state==='running'&&node.desired_state==='running'&&['ready','busy'].includes(node.runtime_state)&&!unknown(node)&&
-    !nodeRemovalConfirmation(node)&&!node.reason_code&&deadlineCurrent(node.hard_deadline)&&deadlineCurrent(node.provider_safe_deadline);
+    ['starting','ready','busy'].includes(node.state)&&node.desired_state==='running'&&['ready','busy'].includes(node.runtime_state)&&!unknown(node)&&
+    !nodeRemovalConfirmation(node)&&!node.reason_code&&nodeDeadline(node,now).verified&&
+    deadlineCurrent(node.hard_deadline)&&node.provider_safe_deadline>=node.hard_deadline;
   return {stale:staleSnapshot(snapshot,now),
     ready_slots:current.reduce((n,node)=>n+(readinessCurrent(node)?(node.slots||[]).filter(slot=>slot.state==='ready'&&!slot.stale).length:0),0),
     starting_nodes:current.filter(node=>!unknown(node)&&['reserved','creating','starting'].includes(node.state)&&!['blocked','failed','ready','busy','draining'].includes(node.runtime_state)).length,

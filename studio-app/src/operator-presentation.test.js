@@ -47,12 +47,12 @@ test('stale and absent bootstrap observations remain unknown rather than invente
   assert.equal(operatorBootstrap({...active,bootstrap:{observed_at:1001,slots:[]}},now).freshness,'unknown');
 });
 test('capacity summary excludes historical ready slots and counts only observed live readiness',()=>{
-  const ready={...active,id:'ready',state:'running',desired_state:'running',runtime_state:'ready',provider_safe_deadline:1400,slots:[{id:'s',state:'ready',stale:false},{id:'expired',state:'ready',stale:true}]},unknown={...ready,id:'unknown',observed_at:800};
+  const ready={...active,id:'ready',state:'ready',desired_state:'running',runtime_state:'ready',provider_safe_deadline:1400,provider_lifetime_state:'verified',provider_lifetime_observed_at:999,slots:[{id:'s',state:'ready',stale:false},{id:'expired',state:'ready',stale:true}]},unknown={...ready,id:'unknown',observed_at:800};
   const snapshot={observed_at:999,controller:{state:'running',last_heartbeat_at:999,stale:false},nodes:[active,ended,ready,unknown]};
   const summary=operatorCapacitySummary(snapshot,now);
   assert.deepEqual(summary,{stale:false,ready_slots:1,starting_nodes:1,unknown_nodes:1,pending_review:0});
   assert.equal(operatorNodeStatus({...ready,slots:[]},now).label,'等待执行槽就绪');
-  for(const patch of [{desired_state:'draining'},{desired_state:'drained'},{desired_state:'stopped'},{state:'destroying'},{state:'destroy_unknown'},{runtime_state:'blocked'},{runtime_state:'failed'},{record_group:'pending_review'},{hard_deadline:1000},{provider_safe_deadline:1000},{provider_safe_deadline:null},{reason_code:'runtime_process_exited'}]){
+  for(const patch of [{desired_state:'draining'},{desired_state:'drained'},{desired_state:'stopped'},{state:'destroying'},{state:'destroy_unknown'},{runtime_state:'blocked'},{runtime_state:'failed'},{record_group:'pending_review'},{hard_deadline:1000},{provider_safe_deadline:1000},{provider_safe_deadline:null},{provider_safe_deadline:1299},{provider_lifetime_state:'unverified'},{provider_lifetime_observed_at:969},{provider_lifetime_observed_at:1001},{reason_code:'runtime_process_exited'}]){
     assert.equal(operatorCapacitySummary({...snapshot,nodes:[{...ready,...patch}]},now).ready_slots,0,JSON.stringify(patch));
   }
   for(const controller of [{state:'offline',last_heartbeat_at:999},{state:'running',last_heartbeat_at:800},{state:'running',last_heartbeat_at:1001},{state:'running',last_heartbeat_at:999,stale:true},null]){
@@ -60,6 +60,8 @@ test('capacity summary excludes historical ready slots and counts only observed 
   }
   assert.equal(operatorCapacitySummary({...snapshot,observed_at:800,nodes:[ready]},now).ready_slots,0);
   assert.equal(operatorCapacitySummary({...snapshot,nodes:[{...ready,runtime_state:'busy'}]},now).ready_slots,1);
+  assert.equal(operatorCapacitySummary({...snapshot,nodes:[{...ready,state:'busy',runtime_state:'busy'}]},now).ready_slots,1);
+  assert.equal(operatorCapacitySummary({...snapshot,nodes:[{...ready,state:'starting'}]},now).ready_slots,1);
 });
 test('compact rows expose a detail action instead of full slot history',()=>{
   const html=renderToStaticMarkup(React.createElement(MachineRow,{node:ended,profiles:[],now,onOpen:()=>{},onExtend:()=>{}}));
