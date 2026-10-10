@@ -9,6 +9,7 @@ export function dstackNodeStatus(node,now=Date.now()){
   if(!node.observation_fresh||observed===null||observed*1000>now||now-observed*1000>30000||node.state?.includes('unknown'))return {label:'状态待核对',tone:'warn',group:'review'};
   if(deadline===null||deadline*1000<=now)return {label:'期限已到 · 等待停止核对',tone:'warn',group:'review'};
   if(node.ready===true&&node.state==='ready')return {label:'运行接口就绪',tone:'good',group:'current'};
+  if(node.state==='ready')return {label:'等待业务执行槽与准入',tone:'neutral',group:'current'};
   return {label:({reserved:'启动请求已保存',creating:'正在申请机器',starting:'正在准备机器',runtime_unconfirmed:'等待运行接口验收',busy:'正在处理原任务',draining:'正在排空',stopping:'停止中'}[node.state]||'等待状态核对'),tone:'neutral',group:'current'};
 }
 

@@ -79,6 +79,7 @@ test('running is never presented as ready without exact fresh native state',()=>
   const now=1000000,node={id:'n',state:'runtime_unconfirmed',ready:false,desired_state:'running',observation_fresh:true,observed_at:1000,hard_deadline:2000};
   assert.equal(dstackNodeStatus(node,now).label,'等待运行接口验收');
   assert.equal(dstackNodeStatus({...node,state:'ready',ready:true},now).label,'运行接口就绪');
+  assert.equal(dstackNodeStatus({...node,state:'ready',native_ready:true,ready:false},now).label,'等待业务执行槽与准入');
   assert.equal(dstackNodeStatus({...node,state:'ready',ready:true},now+31000).label,'状态待核对');
   assert.equal(dstackNodeStatus({...node,state:'ready',ready:true,observation_fresh:false},now).label,'状态待核对');
 });
