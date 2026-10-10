@@ -68,11 +68,11 @@ function MarketFilters({result,catalog}){
   if(!result.filters?.length)return null;
   return <details className="op-details op-market-filters">
     <summary>当前筛选条件与排除原因{result.excluded_count>0&&` · ${result.excluded_count} 项被筛掉`}</summary>
-    <p>条件来自服务端配置。模型运行要求决定最低资源。「参考条件」中的带宽与价格用于提示和排序；「服务端部署配置」中的资源、带宽与费率上限会限制实际启动。</p>
+    <p>条件来自服务端配置。当前模型准入条件包含已配置的资源门槛，不代表每项都是实测硬件最低值。调整运行策略由服务端处理，模型与精度保持所选配置。「参考条件」中的带宽与价格用于提示和排序；「服务端部署配置」中的资源、带宽与费率上限会限制实际启动。</p>
     <p>Lium 按可分配内存筛选，会扣除至少 4 GiB 的系统保留；Targon 按资源规格中的已分配内存筛选。</p>
     {result.filters.map(profile=><section key={profile.runtime_profile_id}>
       <h4>{catalog?.profiles?.find(item=>item.id===profile.runtime_profile_id)?.label||profile.runtime_profile_id}</h4>
-      <p className="op-note">模型运行要求</p><FilterFacts filters={profile.hard_requirements}/>
+      <p className="op-note">当前模型准入条件</p><FilterFacts filters={profile.hard_requirements}/>
       <p className="op-note">参考条件</p><FilterFacts filters={profile.guidance}/>
       {profile.deployments?.length?<details className="op-details">
         <summary>服务端部署配置 · {profile.deployments.length} 项</summary>
@@ -85,7 +85,7 @@ function MarketFilters({result,catalog}){
     </section>)}
     {result.excluded?.length>0&&<details className="op-details">
       <summary>查看被筛掉的机器 · {result.excluded_count} 项</summary>
-      <p>以下库存低于模型最低资源要求，或 GPU 型号、版本尚未纳入所选模型的验收配置。其他未满足的启动条件显示在机器卡片上。</p>
+      <p>以下库存低于当前模型的资源准入门槛，或 GPU 型号、版本尚未纳入所选模型的验收配置。其他未满足的启动条件显示在机器卡片上。</p>
       <div className="op-table-wrap"><table><thead><tr><th>供应商与机器</th><th>上报资源</th><th>排除原因</th></tr></thead><tbody>
         {result.excluded.map((offer,index)=><tr key={`${offer.provider}-${offer.offer_id}-${offer.runtime_profile_id}-${index}`}>
           <td>{providerLabel(offer.provider)} · {offer.gpu_type} × {offer.gpu_count}<small><code>{offer.offer_id}</code></small></td>
