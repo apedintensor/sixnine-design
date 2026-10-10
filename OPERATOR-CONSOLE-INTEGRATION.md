@@ -1,6 +1,6 @@
 # Operator capacity console
 
-Tracking: [h3-studio #71](https://github.com/apedintensor/h3-studio/issues/71).
+Tracking: [h3-studio #71](https://github.com/inkseq/h3-studio/issues/71).
 
 ## Integration boundaries
 

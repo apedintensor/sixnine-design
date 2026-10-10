@@ -1,10 +1,10 @@
 # Sixnine canonical frontend and approved mock
 
-Private source repository for `studio-app/`, `quick-chat-mock/` and the Quick Chat specifications.
+Public `inkseq/sixnine-design` source repository for `studio-app/`, `quick-chat-mock/` and the Quick Chat specifications.
 This preserves current work in place. It is not a deployment or a claim that generation is enabled.
 
-- Delivery plan, claims and issues: https://github.com/apedintensor/h3-studio and its Sixnine Platform Delivery Project.
-- Backend integration work: G1 / G2 in that Project; coordinate shared API contracts before editing.
+- Delivery plan, claims and issues: https://github.com/inkseq/h3-studio and its Sixnine Platform Delivery Project.
+- Backend integration work: G1 / G2 in the retained Project linked from the backend `workflow/project.json`; repository transfer does not imply that the Project owner changed; coordinate shared API contracts before editing.
 - `studio-app/` is canonical. The backend repository's `yingxu/` is a generated release snapshot.
 - `quick-chat-mock/` is the user-approved interaction reference. Preserve its flow.
 - Model/media files, dependencies, environments, logs, build output and user uploads are excluded.
